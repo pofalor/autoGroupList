@@ -1,6 +1,6 @@
 import telebot
 from telebot import types
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from data import students, schedule_1, schedule_2  # Импорт расписаний
 import time
 import threading
@@ -15,6 +15,9 @@ attendance = {}  # Словарь для отслеживания присутс
 # Номер старосты
 LEADER_NUMBER = 11
 
+# Словарь для отслеживания отправленных уведомлений
+sent_notifications = {}  # Ключ: (user_id, subject, date), Значение: True/False
+
 # Функция для проверки, является ли пользователь старостой
 def is_leader(user_id):
     if user_id in student_data:
@@ -27,6 +30,33 @@ def is_number_taken(number):
         if data['number'] == number:
             return True
     return False
+
+# Функция для проверки, можно ли отметиться (до 17:00 UTC)
+def can_mark_attendance():
+    now = datetime.now(timezone.utc)
+    return now.hour < 17  # Отметка доступна до 17:00 UTC
+
+# Функция для проверки, было ли уже отправлено уведомление о завершении занятия сегодня
+def has_end_class_notification_been_sent_today(subject):
+    today = datetime.now(timezone.utc).date()
+    key = (subject, today)
+    return sent_notifications.get(key, False)
+
+# Функция для отправки уведомления о завершении занятия
+def send_end_class_notification(subject):
+    today = datetime.now(timezone.utc).date()
+    key = (subject, today)
+
+    if not has_end_class_notification_been_sent_today(subject):
+        end_class_notification(subject)
+        sent_notifications[key] = True
+
+# Функция для очистки уведомлений о завершении занятий в начале нового дня
+def clear_sent_notifications():
+    today = datetime.now(timezone.utc).date()
+    keys_to_delete = [key for key in sent_notifications.keys() if key[1] != today]
+    for key in keys_to_delete:
+        del sent_notifications[key]
 
 # command /start
 @bot.message_handler(commands=['start'])
@@ -111,20 +141,32 @@ def info(message):
 
 # Функция для отправки уведомлений о начале занятия
 def send_class_notification(user_id, subject, start_time):
-    markup = types.InlineKeyboardMarkup()
-    attend_button = types.InlineKeyboardButton("Я на паре", callback_data=f"attend_{user_id}_{subject}")
-    markup.add(attend_button)
-    bot.send_message(
-        user_id,
-        f"Уведомление: Занятие '{subject}' начинается в {start_time}!\nНажмите кнопку, чтобы подтвердить присутствие.",
-        reply_markup=markup
-    )
+    # Проверяем, было ли уже отправлено уведомление
+    today = datetime.now(timezone.utc).date()
+    key = (user_id, subject, today)
+
+    if key not in sent_notifications:
+        markup = types.InlineKeyboardMarkup()
+        attend_button = types.InlineKeyboardButton("Я на паре", callback_data=f"attend_{user_id}_{subject}")
+        markup.add(attend_button)
+        bot.send_message(
+            user_id,
+            f"Уведомление: Занятие '{subject}' начинается в {start_time}!\nНажмите кнопку, чтобы подтвердить присутствие.",
+            reply_markup=markup
+        )
+        # Помечаем уведомление как отправленное
+        sent_notifications[key] = True
 
 # Функция для обработки нажатия кнопки "Я на паре"
 @bot.callback_query_handler(func=lambda call: call.data.startswith("attend_"))
 def handle_attendance(call):
     _, user_id, subject = call.data.split('_')
     user_id = int(user_id)
+
+    # Проверяем, можно ли отметиться (до 17:00 UTC)
+    if not can_mark_attendance():
+        bot.answer_callback_query(call.id, "Отметиться уже нельзя, время прошло.")
+        return
 
     # Проверяем, если пользователь еще не добавлен в список присутствующих
     if subject not in attendance:
@@ -189,13 +231,13 @@ def check_schedule():
                 year=current_time.year, month=current_time.month, day=current_time.day
             )
 
-            # Проверяем, если занятие начинается в данный момент
-            if lesson_start_time == current_time.replace(second=0, microsecond=0):
+            # Проверяем, если занятие началось
+            if lesson_start_time <= current_time and can_mark_attendance():
                 send_class_notification(user_id, lesson['subject'], lesson['start'])
 
-                # Вызов функции завершения занятия в момент окончания
-                threading.Timer((lesson_end_time - current_time).total_seconds(), end_class_notification,
-                                args=[lesson['subject']]).start()
+            # Проверяем, если текущее время после 17:00 UTC и занятие уже завершилось
+            if current_time.hour >= 20 and lesson_end_time < current_time:
+                send_end_class_notification(lesson['subject'])
 
 # Функция для вывода расписания на сегодня
 @bot.message_handler(commands=['schedule'])
@@ -203,12 +245,12 @@ def show_schedule(message):
     user_id = message.from_user.id
     if user_id in student_data:
         subgroup = student_data[user_id]['sub_group']
-        current_week_number = datetime.now().isocalendar()[1]
+        current_week_number = datetime.now(timezone.utc).isocalendar()[1]
         current_week_type = 'even' if current_week_number % 2 == 0 else 'odd'
         schedule = schedule_1 if subgroup == 'subgroup1' else schedule_2
 
         # Получаем сегодняшний день недели
-        today = datetime.now().strftime('%A').lower()  # Например, 'monday'
+        today = datetime.now(timezone.utc).strftime('%A').lower()  # Например, 'monday'
         lessons_today = schedule[current_week_type][today]
 
         # Формируем текст с указанием четности недели
@@ -225,7 +267,7 @@ def show_schedule(message):
 
 @bot.message_handler(commands=['time'])
 def show_time(message):
-    current_time = datetime.now().strftime('%H:%M:%S')  # Получаем текущее время в формате ЧЧ:ММ:СС
+    current_time = datetime.now(timezone.utc).strftime('%H:%M:%S')  # Получаем текущее время в формате ЧЧ:ММ:СС
     bot.send_message(message.chat.id, f"Текущее время: {current_time}")
 
 @bot.message_handler(commands=['leader'])
@@ -269,7 +311,13 @@ def send_attendance_list(message):
     bot.send_message(user_id, "Список отметившихся студентов:\n\n" + "\n".join(attendance_list))
 
 def notify_loop():
+    last_checked_day = datetime.now(timezone.utc).day
     while True:
+        current_day = datetime.now(timezone.utc).day
+        if current_day != last_checked_day:
+            clear_sent_notifications()
+            last_checked_day = current_day
+
         check_schedule()
         time.sleep(60)  # Проверка каждую минуту
 
