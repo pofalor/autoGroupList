@@ -5,7 +5,7 @@ from data import students, schedule_1, schedule_2  # Импорт расписа
 import time
 import threading
 
-TOKEN = '7825034644:AAHVoxPs_CThj7aUTT0wyehBPMID1PZrNr8'
+TOKEN = '6325471074:AAEre2i5eZnbartBe5_eR3wxH1SNAHa6nhU'
 bot = telebot.TeleBot(TOKEN)
 
 # map {number in the group: telegram id}
