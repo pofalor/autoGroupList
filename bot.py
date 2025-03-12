@@ -9,7 +9,7 @@ TOKEN = '7825034644:AAHVoxPs_CThj7aUTT0wyehBPMID1PZrNr8'
 bot = telebot.TeleBot(TOKEN)
 
 # map {number in the group: telegram id}
-student_data = {}
+student_data = {}  # Хранит данные о студентах (номер в группе, подгруппа)
 attendance = {}  # Словарь для отслеживания присутствующих на занятии
 
 # Номер старосты
@@ -19,6 +19,13 @@ LEADER_NUMBER = 12
 def is_leader(user_id):
     if user_id in student_data:
         return student_data[user_id]['number'] == LEADER_NUMBER
+    return False
+
+# Функция для проверки, занят ли номер в группе другим пользователем
+def is_number_taken(number):
+    for data in student_data.values():
+        if data['number'] == number:
+            return True
     return False
 
 # command /start
@@ -34,8 +41,19 @@ def start(message):
 @bot.message_handler(func=lambda message: message.text.isdigit())
 def handle_number(message):
     number = int(message.text)
+    user_id = message.from_user.id
+
+    # Проверяем, что номер в группе корректен
     if 1 <= number <= len(students):
-        user_id = message.from_user.id
+        # Проверяем, занят ли номер другим пользователем
+        if is_number_taken(number):
+            bot.send_message(
+                message.chat.id,
+                f"Номер {number} уже занят другим пользователем. Пожалуйста, введите другой номер."
+            )
+            return
+
+        # Если номер свободен, сохраняем данные
         if user_id not in student_data:
             student_data[user_id] = {}
         student_data[user_id]['number'] = number
@@ -223,7 +241,6 @@ def help_message(message):
         "/schedule - Показать расписание на сегодня.\n"
         "/time - Показать текущее время.\n"
         "/leader - Показать старосту группы.\n"
-        "/list - Показать список отметившихся студентов (только для старосты).\n"
         "/help - Показать это сообщение с описанием команд."
     )
     bot.send_message(message.chat.id, help_text)
