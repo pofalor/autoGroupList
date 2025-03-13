@@ -1,279 +1,205 @@
 import telebot
 from telebot import types
 from datetime import datetime, timezone
-from data import students, schedule_1, schedule_2  # Импорт расписаний
 import time
 import threading
+import psycopg2
+from psycopg2 import sql
 
-TOKEN = '6325471074:AAEre2i5eZnbartBe5_eR3wxH1SNAHa6nhU'
+# Настройки подключения к PostgreSQL
+DB_CONFIG = {
+    'dbname': 'telegram_bot',
+    'user': 'postgres',
+    'password': 'admin',
+    'host': 'localhost',
+    'port': 5434
+}
+
+# Подключение к базе данных
+def get_db_connection():
+    return psycopg2.connect(**DB_CONFIG)
+
+# Инициализация бота
+TOKEN = '7825034644:AAHVoxPs_CThj7aUTT0wyehBPMID1PZrNr8'
 bot = telebot.TeleBot(TOKEN)
-
-# map {number in the group: telegram id}
-student_data = {}  # Хранит данные о студентах (номер в группе, подгруппа)
-attendance = {}  # Словарь для отслеживания присутствующих на занятии
-
-# Номер старосты
-LEADER_NUMBER = 11
-
-# Словарь для отслеживания отправленных уведомлений
-sent_notifications = {}  # Ключ: (user_id, subject, date), Значение: True/False
 
 # Функция для проверки, является ли пользователь старостой
 def is_leader(user_id):
-    if user_id in student_data:
-        return student_data[user_id]['number'] == LEADER_NUMBER
-    return False
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT student_id FROM Leader WHERE telegram_id = %s", (user_id,))
+            return cur.fetchone() is not None
 
 # Функция для проверки, занят ли номер в группе другим пользователем
 def is_number_taken(number):
-    for data in student_data.values():
-        if data['number'] == number:
-            return True
-    return False
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT telegram_id FROM Students WHERE number_in_group = %s", (number,))
+            result = cur.fetchone()
+            return result is not None and result[0] is not None
 
 # Функция для проверки, можно ли отметиться (до 17:00 UTC)
 def can_mark_attendance():
     now = datetime.now(timezone.utc)
-    return now.hour < 17  # Отметка доступна до 17:00 UTC
+    return now.hour < 17
 
-# Функция для проверки, было ли уже отправлено уведомление о завершении занятия сегодня
-def has_end_class_notification_been_sent_today(subject):
-    today = datetime.now(timezone.utc).date()
-    key = (subject, today)
-    return sent_notifications.get(key, False)
-
-# Функция для отправки уведомления о завершении занятия
-def send_end_class_notification(subject):
-    today = datetime.now(timezone.utc).date()
-    key = (subject, today)
-
-    if not has_end_class_notification_been_sent_today(subject):
-        end_class_notification(subject)
-        sent_notifications[key] = True
-
-# Функция для очистки уведомлений о завершении занятий в начале нового дня
-def clear_sent_notifications():
-    today = datetime.now(timezone.utc).date()
-    keys_to_delete = [key for key in sent_notifications.keys() if key[1] != today]
-    for key in keys_to_delete:
-        del sent_notifications[key]
-
-# command /start
+# Обработчик команды /start
 @bot.message_handler(commands=['start'])
 def start(message):
-    group_list = '\n'.join([f"{i + 1}. {name}" for i, name in enumerate(students)])
-    bot.send_message(
-        message.chat.id,
-        f"Привет! Список студентов твоей группы:\n\n{group_list}\nВведи свой номер в группе:"
-    )
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            # Получаем список студентов с номерами
+            cur.execute("SELECT number_in_group, name FROM Students ORDER BY number_in_group")
+            students = cur.fetchall()
+            group_list = '\n'.join([f"{number}. {name}" for number, name in students])
+            bot.send_message(
+                message.chat.id,
+                f"Привет! Список студентов твоей группы:\n\n{group_list}\nВведи свой номер в группе:"
+            )
 
-# Processing the students number
+# Обработчик ввода номера в группе
 @bot.message_handler(func=lambda message: message.text.isdigit())
 def handle_number(message):
     number = int(message.text)
     user_id = message.from_user.id
 
-    # Проверяем, что номер в группе корректен
-    if 1 <= number <= len(students):
-        # Проверяем, занят ли номер другим пользователем
-        if is_number_taken(number):
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            # Проверяем, существует ли такой номер в группе
+            cur.execute("SELECT id FROM Students WHERE number_in_group = %s", (number,))
+            student = cur.fetchone()
+
+            if not student:
+                bot.send_message(message.chat.id, "Такого номера в группе нет. Пожалуйста, введите корректный номер.")
+                return
+
+            # Проверяем, занят ли номер другим пользователем
+            if is_number_taken(number):
+                bot.send_message(
+                    message.chat.id,
+                    f"Номер {number} уже занят другим пользователем. Пожалуйста, введите другой номер."
+                )
+                return
+
+            # Привязываем telegram_id к номеру
+            cur.execute("UPDATE Students SET telegram_id = %s WHERE number_in_group = %s", (user_id, number))
+            conn.commit()
+
+            # Предлагаем выбрать подгруппу
+            markup = types.InlineKeyboardMarkup()
+            group1_button = types.InlineKeyboardButton("1-я подгруппа", callback_data="group_1")
+            group2_button = types.InlineKeyboardButton("2-я подгруппа", callback_data="group_2")
+            markup.add(group1_button, group2_button)
             bot.send_message(
                 message.chat.id,
-                f"Номер {number} уже занят другим пользователем. Пожалуйста, введите другой номер."
+                f"Вы выбрали номер {number}. Теперь выберите свою подгруппу:",
+                reply_markup=markup
             )
-            return
 
-        # Если номер свободен, сохраняем данные
-        if user_id not in student_data:
-            student_data[user_id] = {}
-        student_data[user_id]['number'] = number
-
-        # После ввода номера предлагаем выбрать подгруппу
-        markup = types.InlineKeyboardMarkup()
-        group1_button = types.InlineKeyboardButton("1-я подгруппа", callback_data="group_1")
-        group2_button = types.InlineKeyboardButton("2-я подгруппа", callback_data="group_2")
-        markup.add(group1_button, group2_button)
-        bot.send_message(
-            message.chat.id,
-            f"Вы выбрали номер {number} - {students[number - 1]}. Теперь выберите свою подгруппу:",
-            reply_markup=markup
-        )
-    else:
-        bot.send_message(message.chat.id, "Пожалуйста, введите корректный номер из списка.")
-
+# Обработчик выбора подгруппы
 @bot.callback_query_handler(func=lambda call: call.data.startswith("group_"))
 def handle_group_choice(call):
     user_id = call.from_user.id
-    if call.data == "group_1":
-        sub_group = "subgroup1"
-    elif call.data == "group_2":
-        sub_group = "subgroup2"
+    subgroup = "subgroup1" if call.data == "group_1" else "subgroup2"
 
-    # Сохраняем выбор подгруппы
-    if user_id in student_data:
-        student_data[user_id]['sub_group'] = sub_group
-        bot.send_message(
-            call.message.chat.id,
-            f"Вы выбрали {sub_group}. Ваши данные сохранены."
-        )
-    else:
-        bot.send_message(call.message.chat.id, "Сначала введите номер в группе с помощью команды /start.")
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE Students SET subgroup = %s WHERE telegram_id = %s", (subgroup, user_id))
+            conn.commit()
+
+    bot.send_message(
+        call.message.chat.id,
+        f"Вы выбрали {subgroup}. Ваши данные сохранены."
+    )
 
 @bot.message_handler(commands=['info'])
 def info(message):
     user_id = message.from_user.id
-    if user_id in student_data:
-        student_info = student_data[user_id]
-        number = student_info.get('number', 'Не задан')
-        sub_group = student_info.get('sub_group', 'Не выбрана')
-        student_name = students[number - 1] if isinstance(number, int) else 'Неизвестно'
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT name, number_in_group, subgroup 
+                FROM Students 
+                WHERE telegram_id = %s
+            """, (user_id,))
+            student_info = cur.fetchone()
 
-        bot.send_message(
-            message.chat.id,
-            f"Информация о вас:\n"
-            f"Имя: {student_name}\n"
-            f"Номер в группе: {number}\n"
-            f"Подгруппа: {sub_group}"
-        )
-    else:
-        bot.send_message(message.chat.id,
-                         "Информация о вас не найдена. Пожалуйста, введите номер и выберите подгруппу с помощью команды /start.")
+            if student_info:
+                name, number, subgroup = student_info
+                bot.send_message(
+                    message.chat.id,
+                    f"Информация о вас:\n"
+                    f"Имя: {name}\n"
+                    f"Номер в группе: {number}\n"
+                    f"Подгруппа: {subgroup}"
+                )
+            else:
+                bot.send_message(message.chat.id, "Информация о вас не найдена.")
 
-# Функция для отправки уведомлений о начале занятия
-def send_class_notification(user_id, subject, start_time):
-    # Проверяем, было ли уже отправлено уведомление
-    today = datetime.now(timezone.utc).date()
-    key = (user_id, subject, today)
-
-    if key not in sent_notifications:
-        markup = types.InlineKeyboardMarkup()
-        attend_button = types.InlineKeyboardButton("Я на паре", callback_data=f"attend_{user_id}_{subject}")
-        markup.add(attend_button)
-        bot.send_message(
-            user_id,
-            f"Уведомление: Занятие '{subject}' начинается в {start_time}!\nНажмите кнопку, чтобы подтвердить присутствие.",
-            reply_markup=markup
-        )
-        # Помечаем уведомление как отправленное
-        sent_notifications[key] = True
-
-# Функция для обработки нажатия кнопки "Я на паре"
-@bot.callback_query_handler(func=lambda call: call.data.startswith("attend_"))
-def handle_attendance(call):
-    _, user_id, subject = call.data.split('_')
-    user_id = int(user_id)
-
-    # Проверяем, можно ли отметиться (до 17:00 UTC)
-    if not can_mark_attendance():
-        bot.answer_callback_query(call.id, "Отметиться уже нельзя, время прошло.")
-        return
-
-    # Проверяем, если пользователь еще не добавлен в список присутствующих
-    if subject not in attendance:
-        attendance[subject] = []
-
-    if user_id not in attendance[subject]:
-        attendance[subject].append(user_id)
-        bot.answer_callback_query(call.id, "Вы отметили присутствие на занятии.")
-    else:
-        bot.answer_callback_query(call.id, "Вы уже отметили присутствие на этом занятии.")
-
-# Функция для завершения занятия и отправки уведомления преподавателю
-def end_class_notification(subject):
-    # Найдем идентификатор старосты среди зарегистрированных студентов
-    teacher_id = None
-    for user_id, data in student_data.items():
-        if data['number'] == LEADER_NUMBER:
-            teacher_id = user_id
-            break
-
-    # Проверяем, найден ли преподаватель
-    if teacher_id is None:
-        print(f"Староста с номером {LEADER_NUMBER} не найден в student_data.")
-        return
-
-    if subject in attendance:
-        present_students = attendance[subject]
-        count_present = len(present_students)
-
-        if count_present > 0:
-            student_names = [students[student_data[user]['number'] - 1] for user in present_students]
-            student_list = '\n'.join(student_names)
-        else:
-            student_list = "Нет присутствующих."
-
-        bot.send_message(
-            teacher_id,
-            f"Занятие '{subject}' завершено.\n"
-            f"Количество присутствующих: {count_present}\n"
-            f"Список присутствующих:\n{student_list}"
-        )
-        del attendance[subject]
-
-# Функция для проверки расписания и отправки уведомлений
-def check_schedule():
-    current_time = datetime.now()
-    current_week_type = 'even' if current_time.isocalendar()[1] % 2 == 0 else 'odd'
-
-    for user_id, data in student_data.items():
-        subgroup = data['sub_group']
-        schedule = schedule_1 if subgroup == 'subgroup1' else schedule_2
-
-        # Проверяем расписание на текущий день недели
-        today = current_time.strftime('%A').lower()  # Получаем название дня недели (например, 'monday')
-        lessons_today = schedule[current_week_type][today]
-
-        for lesson in lessons_today:
-            lesson_start_time = datetime.strptime(lesson['start'], '%H:%M').replace(
-                year=current_time.year, month=current_time.month, day=current_time.day
-            )
-            lesson_end_time = datetime.strptime(lesson['end'], '%H:%M').replace(
-                year=current_time.year, month=current_time.month, day=current_time.day
-            )
-
-            # Проверяем, если занятие началось
-            if lesson_start_time <= current_time and can_mark_attendance():
-                send_class_notification(user_id, lesson['subject'], lesson['start'])
-
-            # Проверяем, если текущее время после 17:00 UTC и занятие уже завершилось
-            if current_time.hour >= 20 and lesson_end_time < current_time:
-                send_end_class_notification(lesson['subject'])
-
-# Функция для вывода расписания на сегодня
 @bot.message_handler(commands=['schedule'])
 def show_schedule(message):
     user_id = message.from_user.id
-    if user_id in student_data:
-        subgroup = student_data[user_id]['sub_group']
-        current_week_number = datetime.now(timezone.utc).isocalendar()[1]
-        current_week_type = 'even' if current_week_number % 2 == 0 else 'odd'
-        schedule = schedule_1 if subgroup == 'subgroup1' else schedule_2
 
-        # Получаем сегодняшний день недели
-        today = datetime.now(timezone.utc).strftime('%A').lower()  # Например, 'monday'
-        lessons_today = schedule[current_week_type][today]
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            # Получаем подгруппу студента
+            cur.execute("SELECT subgroup FROM Students WHERE telegram_id = %s", (user_id,))
+            student_data = cur.fetchone()
 
-        # Формируем текст с указанием четности недели
-        schedule_text = f"Расписание на сегодня ({today.capitalize()} - {current_week_type.capitalize()} неделя):\n"
-        if not lessons_today:
-            schedule_text += "Занятий нет.\n"
-        else:
-            for lesson in lessons_today:
-                schedule_text += f"{lesson['start']} - {lesson['subject']}\n"
+            if not student_data:
+                bot.send_message(message.chat.id, "Сначала введите номер и выберите подгруппу с помощью команды /start.")
+                return
 
-        bot.send_message(message.chat.id, schedule_text)
-    else:
-        bot.send_message(message.chat.id, "Сначала введите номер и выберите подгруппу с помощью команды /start.")
+            subgroup = student_data[0]
+
+            # Определяем тип недели (четная/нечетная)
+            current_week_number = datetime.now(timezone.utc).isocalendar()[1]
+            week_type = 'even' if current_week_number % 2 == 0 else 'odd'
+
+            # Получаем сегодняшний день недели
+            today = datetime.now(timezone.utc).strftime('%A').lower()
+
+            # Получаем расписание на сегодня
+            cur.execute("""
+                SELECT subject, start_time, end_time 
+                FROM Schedule 
+                WHERE subgroup = %s AND week_type = %s AND day_of_week = %s
+                ORDER BY start_time
+            """, (subgroup, week_type, today))
+            lessons_today = cur.fetchall()
+
+            # Формируем текст расписания
+            if not lessons_today:
+                schedule_text = "Сегодня занятий нет."
+            else:
+                schedule_text = f"Расписание на сегодня ({today.capitalize()} - {week_type.capitalize()} неделя):\n"
+                for subject, start_time, end_time in lessons_today:
+                    schedule_text += f"{start_time} - {end_time}: {subject}\n"
+
+            bot.send_message(message.chat.id, schedule_text)
 
 @bot.message_handler(commands=['time'])
 def show_time(message):
-    current_time = datetime.now(timezone.utc).strftime('%H:%M:%S')  # Получаем текущее время в формате ЧЧ:ММ:СС
-    bot.send_message(message.chat.id, f"Текущее время: {current_time}")
+    current_time = datetime.now(timezone.utc).strftime('%H:%M:%S')
+    bot.send_message(message.chat.id, f"Текущее время (UTC): {current_time}")
 
 @bot.message_handler(commands=['leader'])
 def show_leader(message):
-    leader_name = students[LEADER_NUMBER - 1]  # Получаем имя старосты по номеру
-    bot.send_message(message.chat.id, f"Староста группы: {leader_name}")
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            # Получаем старосту
+            cur.execute("""
+                SELECT s.name 
+                FROM Students s
+                JOIN Leader l ON s.id = l.student_id
+            """)
+            leader_data = cur.fetchone()
+
+            if leader_data:
+                leader_name = leader_data[0]
+                bot.send_message(message.chat.id, f"Староста группы: {leader_name}")
+            else:
+                bot.send_message(message.chat.id, "Староста не назначен.")
 
 @bot.message_handler(commands=['help'])
 def help_message(message):
@@ -287,7 +213,6 @@ def help_message(message):
     )
     bot.send_message(message.chat.id, help_text)
 
-# Команда /list для отправки списка отметившихся студентов
 @bot.message_handler(commands=['list'])
 def send_attendance_list(message):
     user_id = message.from_user.id
@@ -297,32 +222,115 @@ def send_attendance_list(message):
         bot.send_message(user_id, "У вас нет доступа к этой команде.")
         return
 
-    # Формируем список отметившихся студентов
-    if not attendance:
-        bot.send_message(user_id, "Список присутствующих пуст.")
-        return
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            # Получаем список отметившихся студентов
+            cur.execute("""
+                SELECT s.name, a.subject, a.date 
+                FROM Attendance a
+                JOIN Students s ON a.student_id = s.id
+                WHERE a.is_present = TRUE
+            """)
+            attendance_data = cur.fetchall()
 
-    attendance_list = []
-    for subject, user_ids in attendance.items():
-        student_names = [students[student_data[user]['number'] - 1] for user in user_ids]
-        attendance_list.append(f"Предмет: {subject}\nПрисутствовали: {', '.join(student_names)}\n")
+            if not attendance_data:
+                bot.send_message(user_id, "Список присутствующих пуст.")
+                return
 
-    # Отправляем список старосте
-    bot.send_message(user_id, "Список отметившихся студентов:\n\n" + "\n".join(attendance_list))
+            # Формируем список
+            attendance_list = "Список отметившихся студентов:\n\n"
+            for name, subject, date in attendance_data:
+                attendance_list += f"{name} - {subject} ({date})\n"
 
+            bot.send_message(user_id, attendance_list)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("attend_"))
+def handle_attendance(call):
+    _, student_id, subject = call.data.split('_')
+    student_id = int(student_id)
+    user_id = call.from_user.id
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            if not can_mark_attendance():
+                bot.answer_callback_query(call.id, "Отметиться уже нельзя, время прошло.")
+                return
+
+            cur.execute("""
+                SELECT id FROM Attendance 
+                WHERE student_id = %s AND subject = %s AND date = %s
+            """, (student_id, subject, datetime.now(timezone.utc).date()))
+            if cur.fetchone():
+                bot.answer_callback_query(call.id, "Вы уже отметили присутствие на этом занятии.")
+                return
+
+            cur.execute("""
+                INSERT INTO Attendance (student_id, subject, date, is_present)
+                VALUES (%s, %s, %s, %s)
+            """, (student_id, subject, datetime.now(timezone.utc).date(), True))
+            conn.commit()
+
+            bot.answer_callback_query(call.id, "Вы отметили присутствие на занятии.")
+
+# Функция для проверки расписания и отправки уведомлений
+def check_schedule():
+    current_time = datetime.now()
+    current_week_number = current_time.isocalendar()[1]
+    week_type = 'even' if current_week_number % 2 == 0 else 'odd'
+    today = current_time.strftime('%A').lower()
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, telegram_id, subgroup FROM Students WHERE telegram_id IS NOT NULL")
+            students = cur.fetchall()
+
+            for student_id, telegram_id, subgroup in students:
+                cur.execute("""
+                    SELECT subject, start_time 
+                    FROM Schedule 
+                    WHERE subgroup = %s AND week_type = %s AND day_of_week = %s
+                    ORDER BY start_time
+                """, (subgroup, week_type, today))
+                lessons_today = cur.fetchall()
+
+                for subject, start_time in lessons_today:
+                    lesson_start_time = datetime.strptime(start_time, '%H:%M').replace(
+                        year=current_time.year, month=current_time.month, day=current_time.day
+                    )
+
+                    if lesson_start_time <= current_time and can_mark_attendance():
+                        cur.execute("""
+                            SELECT id FROM Notifications 
+                            WHERE student_id = %s AND subject = %s AND date = %s
+                        """, (student_id, subject, current_time.date()))
+                        if not cur.fetchone():
+                            markup = types.InlineKeyboardMarkup()
+                            attend_button = types.InlineKeyboardButton(
+                                "Я на паре",
+                                callback_data=f"attend_{student_id}_{subject}"
+                            )
+                            markup.add(attend_button)
+                            bot.send_message(
+                                telegram_id,
+                                f"Уведомление: Занятие '{subject}' начинается в {start_time}!\n"
+                                "Нажмите кнопку, чтобы подтвердить присутствие.",
+                                reply_markup=markup
+                            )
+
+                            cur.execute("""
+                                INSERT INTO Notifications (student_id, subject, date, notification_type, is_sent)
+                                VALUES (%s, %s, %s, %s, %s)
+                            """, (student_id, subject, current_time.date(), 'start_class', True))
+                            conn.commit()
+
+# Запуск потока для уведомлений
 def notify_loop():
-    last_checked_day = datetime.now(timezone.utc).day
     while True:
-        current_day = datetime.now(timezone.utc).day
-        if current_day != last_checked_day:
-            clear_sent_notifications()
-            last_checked_day = current_day
-
         check_schedule()
-        time.sleep(60)  # Проверка каждую минуту
+        time.sleep(60)
 
-# Запускаем поток для уведомлений
 threading.Thread(target=notify_loop, daemon=True).start()
 
-# Начинаем polling
-bot.polling(none_stop=True)
+# Запуск бота
+if __name__ == "__main__":
+    bot.polling(none_stop=True)
