@@ -9,3 +9,5 @@ DB_CONFIG = {
     'host': 'localhost',
     'port': 5434
 }
+
+TELEGRAM_ADMIN_ID = 569209035

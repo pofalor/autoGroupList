@@ -5,7 +5,7 @@ import time
 import threading
 import psycopg2
 from psycopg2 import sql
-from config import TELEGRAM_BOT_TOKEN, DB_CONFIG  # Импортируем конфигурацию
+from config import TELEGRAM_BOT_TOKEN, DB_CONFIG, TELEGRAM_ADMIN_ID  # Импортируем конфигурацию
 
 # Подключение к базе данных
 def get_db_connection():
@@ -33,6 +33,55 @@ def is_number_taken(number):
 def can_mark_attendance():
     now = datetime.now(timezone.utc)
     return now.hour < 17
+
+# Функция для отправки списка отметившихся старосте
+def send_attendance_list_to_leader():
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            # Проверяем, было ли уже отправлено уведомление сегодня
+            cur.execute("""
+                SELECT id FROM Notifications 
+                WHERE notification_type = %s AND date = %s
+            """, ('end_of_day_report', datetime.now(timezone.utc).date()))
+            if cur.fetchone():
+                return
+
+            # Получаем telegram_id старосты
+            cur.execute("SELECT telegram_id FROM Leader")
+            leader_data = cur.fetchone()
+
+            if not leader_data:
+                bot.send_message(TELEGRAM_ADMIN_ID, "При отправке уведомления старосте о списке группы произошла ошибка. Ошибка: староста не назначен.")
+                return
+
+            leader_id = leader_data[0]
+
+            # Получаем список отметившихся студентов
+            cur.execute("""
+                SELECT s.name, a.subject, a.date 
+                FROM Attendance a
+                JOIN Students s ON a.student_id = s.id
+                WHERE a.is_present = TRUE AND a.date = %s
+                ORDER BY 2, a.student_id
+            """, (datetime.now(timezone.utc).date(),))
+            attendance_data = cur.fetchall()
+
+            if not attendance_data:
+                bot.send_message(leader_id, "Сегодня никто не отметился на занятиях.")
+            else:
+                # Формируем список
+                attendance_list = "Список отметившихся студентов за сегодня:\n\n"
+                for name, subject, date in attendance_data:
+                    attendance_list += f"{name} - {subject}\n"
+
+                bot.send_message(leader_id, attendance_list)
+
+            # Сохраняем информацию о отправленном уведомлении
+            cur.execute("""
+                INSERT INTO Notifications (notification_type, date, is_sent)
+                VALUES (%s, %s, %s)
+            """, ('end_of_day_report', datetime.now(timezone.utc).date(), True))
+            conn.commit()
 
 # Обработчик команды /start
 @bot.message_handler(commands=['start'])
@@ -221,6 +270,7 @@ def send_attendance_list(message):
                 FROM Attendance a
                 JOIN Students s ON a.student_id = s.id
                 WHERE a.is_present = TRUE
+                ORDER BY 2, a.student_id
             """)
             attendance_data = cur.fetchall()
 
@@ -313,6 +363,9 @@ def check_schedule():
                                 VALUES (%s, %s, %s, %s, %s)
                             """, (student_id, subject, current_time.date(), 'start_class', True))
                             conn.commit()
+
+    if not can_mark_attendance():
+        send_attendance_list_to_leader()
 
 # Запуск потока для уведомлений
 def notify_loop():

@@ -31,7 +31,7 @@ CREATE TABLE Attendance (
 CREATE TABLE Notifications (
     id SERIAL PRIMARY KEY,
     student_id INT REFERENCES Students(id),
-    subject VARCHAR(100) NOT NULL,
+    subject VARCHAR(100),
     date DATE NOT NULL,
     notification_type VARCHAR(50) NOT NULL,
     is_sent BOOLEAN NOT NULL
