@@ -5,23 +5,14 @@ import time
 import threading
 import psycopg2
 from psycopg2 import sql
-
-# Настройки подключения к PostgreSQL
-DB_CONFIG = {
-    'dbname': 'telegram_bot',
-    'user': 'postgres',
-    'password': 'admin',
-    'host': 'localhost',
-    'port': 5434
-}
+from config import TELEGRAM_BOT_TOKEN, DB_CONFIG  # Импортируем конфигурацию
 
 # Подключение к базе данных
 def get_db_connection():
     return psycopg2.connect(**DB_CONFIG)
 
 # Инициализация бота
-TOKEN = '7825034644:AAHVoxPs_CThj7aUTT0wyehBPMID1PZrNr8'
-bot = telebot.TeleBot(TOKEN)
+bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 
 # Функция для проверки, является ли пользователь старостой
 def is_leader(user_id):
