@@ -16,8 +16,8 @@ CREATE TABLE Schedule (
     week_type VARCHAR(10) NOT NULL,
     day_of_week VARCHAR(10) NOT NULL,
     subject VARCHAR(100) NOT NULL,
-    start_time TIME NOT NULL,
-    end_time TIME NOT NULL
+    start_time VARCHAR(10) NOT NULL,
+    end_time VARCHAR(10) NOT NULL
 );
 
 CREATE TABLE Attendance (
