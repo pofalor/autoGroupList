@@ -269,9 +269,9 @@ def send_attendance_list(message):
                 SELECT s.name, a.subject, a.date 
                 FROM Attendance a
                 JOIN Students s ON a.student_id = s.id
-                WHERE a.is_present = TRUE
+                WHERE a.is_present = TRUE AND a.date = %s
                 ORDER BY 2, a.student_id
-            """)
+            """, (datetime.now(timezone.utc).date(),))
             attendance_data = cur.fetchall()
 
             if not attendance_data:
