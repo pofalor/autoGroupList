@@ -51,7 +51,7 @@ def send_attendance_list_to_leader():
             leader_data = cur.fetchone()
 
             if not leader_data:
-                bot.send_message(TELEGRAM_ADMIN_ID, "При отправке уведомления старосте о списке группы произошла ошибка. Ошибка: староста не назначен.")
+                safe_send_message(TELEGRAM_ADMIN_ID, "При отправке уведомления старосте о списке группы произошла ошибка. Ошибка: староста не назначен.")
                 return
 
             leader_id = leader_data[0]
@@ -67,14 +67,14 @@ def send_attendance_list_to_leader():
             attendance_data = cur.fetchall()
 
             if not attendance_data:
-                bot.send_message(leader_id, "Сегодня никто не отметился на занятиях.")
+                safe_send_message(leader_id, "Сегодня никто не отметился на занятиях.")
             else:
                 # Формируем список
                 attendance_list = "Список отметившихся студентов за сегодня:\n\n"
                 for name, subject, date in attendance_data:
                     attendance_list += f"{name} - {subject}\n"
 
-                bot.send_message(leader_id, attendance_list)
+                safe_send_message(leader_id, attendance_list)
 
             # Сохраняем информацию о отправленном уведомлении
             cur.execute("""
@@ -92,7 +92,7 @@ def start(message):
             cur.execute("SELECT number_in_group, name FROM Students ORDER BY number_in_group")
             students = cur.fetchall()
             group_list = '\n'.join([f"{number}. {name}" for number, name in students])
-            bot.send_message(
+            safe_send_message(
                 message.chat.id,
                 f"Привет! Список студентов твоей группы:\n\n{group_list}\nВведи свой номер в группе:"
             )
@@ -110,12 +110,12 @@ def handle_number(message):
             student = cur.fetchone()
 
             if not student:
-                bot.send_message(message.chat.id, "Такого номера в группе нет. Пожалуйста, введите корректный номер.")
+                safe_send_message(message.chat.id, "Такого номера в группе нет. Пожалуйста, введите корректный номер.")
                 return
 
             # Проверяем, занят ли номер другим пользователем
             if is_number_taken(number):
-                bot.send_message(
+                safe_send_message(
                     message.chat.id,
                     f"Номер {number} уже занят другим пользователем. Пожалуйста, введите другой номер."
                 )
@@ -130,7 +130,7 @@ def handle_number(message):
             group1_button = types.InlineKeyboardButton("1-я подгруппа", callback_data="group_1")
             group2_button = types.InlineKeyboardButton("2-я подгруппа", callback_data="group_2")
             markup.add(group1_button, group2_button)
-            bot.send_message(
+            safe_send_message(
                 message.chat.id,
                 f"Вы выбрали номер {number}. Теперь выберите свою подгруппу:",
                 reply_markup=markup
@@ -147,7 +147,7 @@ def handle_group_choice(call):
             cur.execute("UPDATE Students SET subgroup = %s WHERE telegram_id = %s", (subgroup, user_id))
             conn.commit()
 
-    bot.send_message(
+    safe_send_message(
         call.message.chat.id,
         f"Вы выбрали {subgroup}. Ваши данные сохранены."
     )
@@ -166,7 +166,7 @@ def info(message):
 
             if student_info:
                 name, number, subgroup = student_info
-                bot.send_message(
+                safe_send_message(
                     message.chat.id,
                     f"Информация о вас:\n"
                     f"Имя: {name}\n"
@@ -174,7 +174,7 @@ def info(message):
                     f"Подгруппа: {subgroup}"
                 )
             else:
-                bot.send_message(message.chat.id, "Информация о вас не найдена.")
+                safe_send_message(message.chat.id, "Информация о вас не найдена.")
 
 @bot.message_handler(commands=['schedule'])
 def show_schedule(message):
@@ -187,7 +187,7 @@ def show_schedule(message):
             student_data = cur.fetchone()
 
             if not student_data:
-                bot.send_message(message.chat.id, "Сначала введите номер и выберите подгруппу с помощью команды /start.")
+                safe_send_message(message.chat.id, "Сначала введите номер и выберите подгруппу с помощью команды /start.")
                 return
 
             subgroup = student_data[0]
@@ -216,12 +216,12 @@ def show_schedule(message):
                 for subject, start_time, end_time in lessons_today:
                     schedule_text += f"{start_time} - {end_time}: {subject}\n"
 
-            bot.send_message(message.chat.id, schedule_text)
+            safe_send_message(message.chat.id, schedule_text)
 
 @bot.message_handler(commands=['time'])
 def show_time(message):
     current_time = datetime.now(timezone.utc).strftime('%H:%M:%S')
-    bot.send_message(message.chat.id, f"Текущее время (UTC): {current_time}")
+    safe_send_message(message.chat.id, f"Текущее время (UTC): {current_time}")
 
 @bot.message_handler(commands=['leader'])
 def show_leader(message):
@@ -237,9 +237,9 @@ def show_leader(message):
 
             if leader_data:
                 leader_name = leader_data[0]
-                bot.send_message(message.chat.id, f"Староста группы: {leader_name}")
+                safe_send_message(message.chat.id, f"Староста группы: {leader_name}")
             else:
-                bot.send_message(message.chat.id, "Староста не назначен.")
+                safe_send_message(message.chat.id, "Староста не назначен.")
 
 @bot.message_handler(commands=['help'])
 def help_message(message):
@@ -251,7 +251,7 @@ def help_message(message):
         "/leader - Показать старосту группы.\n"
         "/help - Показать это сообщение с описанием команд."
     )
-    bot.send_message(message.chat.id, help_text)
+    safe_send_message(message.chat.id, help_text)
 
 @bot.message_handler(commands=['list'])
 def send_attendance_list(message):
@@ -259,7 +259,7 @@ def send_attendance_list(message):
 
     # Проверяем, является ли пользователь старостой
     if not is_leader(user_id):
-        bot.send_message(user_id, "У вас нет доступа к этой команде.")
+        safe_send_message(user_id, "У вас нет доступа к этой команде.")
         return
 
     with get_db_connection() as conn:
@@ -275,7 +275,7 @@ def send_attendance_list(message):
             attendance_data = cur.fetchall()
 
             if not attendance_data:
-                bot.send_message(user_id, "Список присутствующих пуст.")
+                safe_send_message(user_id, "Список присутствующих пуст.")
                 return
 
             # Формируем список
@@ -283,7 +283,7 @@ def send_attendance_list(message):
             for name, subject, date in attendance_data:
                 attendance_list += f"{name} - {subject} ({date})\n"
 
-            bot.send_message(user_id, attendance_list)
+            safe_send_message(user_id, attendance_list)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("attend_"))
 def handle_attendance(call):
@@ -294,7 +294,7 @@ def handle_attendance(call):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             if not can_mark_attendance():
-                bot.answer_callback_query(call.id, "Отметиться уже нельзя, время прошло.")
+                safe_answer_callback_query(call.id, "Отметиться уже нельзя, время прошло.")
                 return
 
             cur.execute("""
@@ -302,7 +302,7 @@ def handle_attendance(call):
                 WHERE student_id = %s AND subject = %s AND date = %s
             """, (student_id, subject, datetime.now(timezone.utc).date()))
             if cur.fetchone():
-                bot.answer_callback_query(call.id, "Вы уже отметили присутствие на этом занятии.")
+                safe_answer_callback_query(call.id, "Вы уже отметили присутствие на этом занятии.")
                 return
 
             cur.execute("""
@@ -311,7 +311,7 @@ def handle_attendance(call):
             """, (student_id, subject, datetime.now(timezone.utc).date(), True))
             conn.commit()
 
-            bot.answer_callback_query(call.id, "Вы отметили присутствие на занятии.")
+            safe_answer_callback_query(call.id, "Вы отметили присутствие на занятии.")
 
 # Функция для проверки расписания и отправки уведомлений
 def check_schedule():
@@ -351,7 +351,7 @@ def check_schedule():
                                 callback_data=f"attend_{student_id}_{subject}"
                             )
                             markup.add(attend_button)
-                            bot.send_message(
+                            safe_send_message(
                                 telegram_id,
                                 f"Уведомление: Занятие '{subject}' начинается в {start_time}!\n"
                                 "Нажмите кнопку, чтобы подтвердить присутствие.",
@@ -367,14 +367,42 @@ def check_schedule():
     if not can_mark_attendance():
         send_attendance_list_to_leader()
 
+def safe_send_message(chat_id, text, reply_markup=None):
+    try:
+        bot.send_message(chat_id, text, reply_markup=reply_markup)
+    except telebot.apihelper.ApiException as e:
+        print(f"Ошибка при отправке сообщения: {e}")
+    except Exception as e:
+        print(f"Неизвестная ошибка: {e}")
+
+def safe_answer_callback_query(callback_query_id, text=None):
+    try:
+        bot.answer_callback_query(callback_query_id, text=text)
+    except telebot.apihelper.ApiException as e:
+        print(f"Ошибка при ответе на callback-запрос: {e}")
+    except Exception as e:
+        print(f"Неизвестная ошибка: {e}")
+
 # Запуск потока для уведомлений
 def notify_loop():
     while True:
-        check_schedule()
-        time.sleep(60)
+        try:
+            check_schedule()
+            time.sleep(60)
+        except Exception as e:
+            print(f"Ошибка в методе notify_loop: {e}.")
+
+def run_bot():
+    while True:
+        try:
+            bot.polling(none_stop=True)
+        except Exception as e:
+            print(f"Ошибка при работе бота: {e}")
+            print("Перезапуск через 10 секунд...")
+            time.sleep(10)  # Подождём немного перед перезапуском
 
 threading.Thread(target=notify_loop, daemon=True).start()
 
 # Запуск бота
 if __name__ == "__main__":
-    bot.polling(none_stop=True)
+    run_bot()

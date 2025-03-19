@@ -1,5 +1,5 @@
 # Токен телеграм-бота
-TELEGRAM_BOT_TOKEN = '6325471074:AAEre2i5eZnbartBe5_eR3wxH1SNAHa6nhU'
+TELEGRAM_BOT_TOKEN = '7825034644:AAHVoxPs_CThj7aUTT0wyehBPMID1PZrNr8'
 
 # Настройки подключения к PostgreSQL
 DB_CONFIG = {
