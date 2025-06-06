@@ -8,6 +8,7 @@ import schedule_logic
 from time_utils import get_local_today
 from bot_instance import bot, safe_send_message, safe_answer_callback_query
 from config import TIME_LIMIT_HOUR_LOCAL
+from logger import logger
 
 def create_main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -96,7 +97,7 @@ def schedule_command(message, student_info):
         header = f"Расписание для **{subgroup_display} подгруппы** на сегодня ({date_str}, {day_name.capitalize()}, {week_type} неделя):\n\n"
         safe_send_message(message.chat.id, header + schedule_text, parse_mode='Markdown', reply_markup=create_main_menu())
     except Exception as e:
-        print(f"Ошибка получения расписания {subgroup}, {week_type}, {day_name}: {e}")
+        logger.exception(f"Ошибка получения расписания %s, %s, %s.", subgroup, week_type, day_name, exc_info=True)
         safe_send_message(message.chat.id, "Не удалось получить расписание.")
 
 @bot.message_handler(commands=['attend_other_group'])
@@ -129,7 +130,7 @@ def attend_other_group_command(message, student_info):
         schedule_text = "\n".join(schedule_text_list)
         safe_send_message(message.chat.id, f"{schedule_text}\n\nВыберите пару:", reply_markup=markup, parse_mode='Markdown')
     except Exception as e:
-        print(f"Ошибка получения расписания другой подгруппы ({other_subgroup}): {e}")
+        logger.exception(f"Ошибка получения расписания другой подгруппы (%s).", other_subgroup, exc_info=True)
         safe_send_message(message.chat.id, "Не удалось получить расписание другой подгруппы.")
 
 @bot.message_handler(func=lambda message: message.text.isdigit())
@@ -158,7 +159,7 @@ def handle_number(message):
     try:
         db.link_telegram_id_to_student(user_id, number)
     except Exception as e:
-        print(f"Ошибка привязки {user_id} к {number}: {e}")
+        logger.exception("Ошибка привязки %s к %s", user_id, number, exc_info=True)
         safe_send_message(chat_id, "Ошибка сохранения номера.")
         return
     markup = types.InlineKeyboardMarkup(row_width=2)
@@ -179,11 +180,11 @@ def handle_group_choice(call):
         try:
             bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
         except telebot.apihelper.ApiException as e:
-             print(f"Не удалось убрать кнопки подгруппы: {e}")
+             logger.exception("Не удалось убрать кнопки подгруппы", exc_info=True)
         safe_send_message(chat_id, f"Вы выбрали {subgroup_display_name} подгруппу. Регистрация завершена!", reply_markup=create_main_menu())
         safe_answer_callback_query(call.id, text=f"Подгруппа {subgroup_display_name} выбрана.")
     except Exception as e:
-        print(f"Ошибка обновления подгруппы {user_id}: {e}")
+        logger.exception("Ошибка обновления подгруппы %s", user_id, exc_info=True)
         safe_send_message(chat_id, "Ошибка сохранения подгруппы.")
         safe_answer_callback_query(call.id, text="Ошибка сохранения", show_alert=True)
 
@@ -196,7 +197,7 @@ def handle_attendance(call):
         _, student_db_id_str, subject = call.data.split("_", 2)
         student_db_id = int(student_db_id_str)
     except (ValueError, IndexError):
-        print(f"Ошибка парсинга callback attend_: {call.data}")
+        logger.exception(f"Ошибка парсинга callback attend_: %s", call.data, exc_info=True)
         safe_answer_callback_query(call.id, text="Ошибка кнопки", show_alert=True)
         return
 
@@ -210,7 +211,7 @@ def handle_attendance(call):
         try:
             bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
         except Exception as e:
-            print(f"Не удалось убрать кнопку attend_ после лимита: {e}")
+            logger.exception(f"Не удалось убрать кнопку attend_ после лимита.", exc_info=True)
         return
 
     try:
@@ -223,11 +224,11 @@ def handle_attendance(call):
             bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=new_text, reply_markup=None)
         except telebot.apihelper.ApiException as e:
             if 'message is not modified' not in str(e):
-                print(f"Ошибка изменения сообщения attend_: {e}")
+                logger.exception("Ошибка изменения сообщения attend_", exc_info=True)
                 safe_send_message(chat_id, f"✅ Вы отмечены на занятии '{subject}'.")
         safe_answer_callback_query(call.id, text="Вы отмечены!")
     except Exception as e:
-        print(f"Ошибка отметки посещаемости attend_ {student_db_id}, {subject}: {e}")
+        logger.exception("Ошибка отметки посещаемости attend_ %s, %s", student_db_id, subject, exc_info=True)
         safe_send_message(chat_id, "Ошибка при отметке.")
         safe_answer_callback_query(call.id, text="Ошибка записи", show_alert=True)
 
@@ -240,7 +241,7 @@ def handle_mark_other_attendance(call):
         _, student_db_id_str, subject = call.data.split("_", 2)
         student_db_id_from_callback = int(student_db_id_str)
     except (ValueError, IndexError):
-        print(f"Ошибка парсинга callback markother_: {call.data}")
+        logger.exception("Ошибка парсинга callback markother_: %s", call.data)
         safe_answer_callback_query(call.id, text="Ошибка кнопки", show_alert=True)
         return
     current_student_info = db.get_student_info_by_telegram(user_id)
@@ -253,7 +254,7 @@ def handle_mark_other_attendance(call):
         try:
             bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
         except Exception as e:
-            print(f"Не удалось убрать кнопки markother_ после лимита: {e}")
+            logger.exception("Не удалось убрать кнопки markother_ после лимита")
         return
 
     try:
@@ -265,11 +266,11 @@ def handle_mark_other_attendance(call):
             bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=new_text, reply_markup=None, parse_mode='Markdown')
         except telebot.apihelper.ApiException as e:
             if 'message is not modified' not in str(e):
-                print(f"Ошибка изменения сообщения markother_: {e}")
+                logger.exception("Ошибка изменения сообщения markother_", exc_info=True)
                 safe_send_message(chat_id, f"✅ Вы отмечены на занятии '{subject}'.")
         safe_answer_callback_query(call.id, text=f"Вы отмечены на '{subject}'!")
     except Exception as e:
-        print(f"Ошибка отметки посещаемости markother_ {student_db_id}, {subject}: {e}")
+        logger.exception("Ошибка отметки посещаемости markother_ %s, %s", student_db_id, subject)
         safe_send_message(chat_id, f"Ошибка при отметке на '{subject}'.")
         safe_answer_callback_query(call.id, text="Ошибка записи", show_alert=True)
 

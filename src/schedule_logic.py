@@ -7,6 +7,7 @@ from telebot import types
 import db
 from bot_instance import safe_send_message
 from config import TELEGRAM_ADMIN_ID, TIME_LIMIT_HOUR_LOCAL
+from src.logger import logger
 from time_utils import LOCAL_TIMEZONE, get_local_now, get_local_today
 
 def get_current_week_type_and_day():
@@ -105,21 +106,19 @@ def check_schedule_and_notify():
                             db.record_notification(student_db_id, subject, current_local_date, 'start_class')
 
             except ValueError:
-                print(f"[ERROR] Неверный формат времени '{start_time_str}' для предмета '{subject}' в расписании.")
+                logger.exception("[ERROR] Неверный формат времени '%s' для предмета '%s' в расписании.", start_time_str, subject)
             except Exception as e:
-                print(f"[ERROR] Ошибка обработки расписания для student {telegram_id}, subject {subject}: {e}")
+                logger.exception(f"[ERROR] Ошибка обработки расписания для student %s, subject %s", telegram_id, subject)
 
 def notify_loop():
-    print("Запуск цикла уведомлений...")
+    logger.info("Запуск цикла уведомлений...")
     while True:
         try:
             check_schedule_and_notify()
             py_time.sleep(60)
         except psycopg2.OperationalError as db_err:
-             print(f"[ERROR] Ошибка БД в цикле уведомлений: {db_err}. Повтор через 60 сек.")
+             logger.exception(f"[ERROR] Ошибка БД в цикле уведомлений. Повтор через 60 сек.")
              py_time.sleep(60)
         except Exception as e:
-            print(f"[CRITICAL] Непредвиденная ошибка в цикле уведомлений: {e}. Перезапуск через 60 сек.")
-            import traceback
-            traceback.print_exc()
+            logger.exception(f"[CRITICAL] Непредвиденная ошибка в цикле уведомлений. Перезапуск через 60 сек.")
             py_time.sleep(60)

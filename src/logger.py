@@ -7,7 +7,7 @@ def setup_logger():
 
     # Настраиваем логгер
     logger = logging.getLogger('daily_logger')
-    logger.setLevel(logging.WARNING)  # Уровень логирования
+    logger.setLevel(logging.INFO)  # Уровень логирования
 
     # Создаем FileHandler для записи в файл
     file_handler = logging.FileHandler(log_filename, encoding='utf-8')

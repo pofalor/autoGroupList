@@ -29,12 +29,12 @@ def run_bot_polling():
             safe_send_message(TELEGRAM_ADMIN_ID, f"Критическая ошибка БД, бот остановлен: {db_err}")
             break
         except telebot.apihelper.ApiException as api_err:
-            logger.error(f"Ошибка Telegram API.", exc_info=True)
+            logger.exception(f"Ошибка Telegram API.", exc_info=True)
             logger.info("Попытка перезапуска через 30 секунд...")
             safe_send_message(TELEGRAM_ADMIN_ID, f"Ошибка API Telegram: {api_err}. Перезапуск через 30 сек.")
             time.sleep(30)
         except Exception as e:
-            logger.error(f"Непредвиденная ошибка в главном цикле polling.", exc_info=True)
+            logger.exception(f"Непредвиденная ошибка в главном цикле polling.", exc_info=True)
             logger.info("Перезапуск через 15 секунд...")
             safe_send_message(TELEGRAM_ADMIN_ID, f"Непредвиденная ошибка: {e}. Перезапуск через 15 сек.")
             time.sleep(15)
