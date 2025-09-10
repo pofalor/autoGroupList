@@ -25,7 +25,7 @@ def can_mark_attendance():
 def format_schedule(schedule_data):
     if not schedule_data:
         return "Сегодня пар нет."
-    schedule_list = [f"• {start_time} - {subject}" for subject, start_time in schedule_data]
+    schedule_list = [f"• {start_time} - {subject}" for subject_id, subject, start_time in schedule_data]
     return "\n".join(schedule_list)
 
 def send_attendance_list_to_leader():

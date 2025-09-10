@@ -170,5 +170,5 @@ def get_subject_name_by_id(subject_id):
                 FROM Schedule
                 WHERE id = %s
                 LIMIT 1
-            """, subject_id)
+            """, (subject_id,))
             return cur.fetchall()
