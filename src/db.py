@@ -74,7 +74,7 @@ def get_schedule_for_student(subgroup, week_type, day_of_week):
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT subject, start_time
+                SELECT id as subject_id, subject, start_time
                 FROM Schedule
                 WHERE subgroup = %s AND week_type = %s AND day_of_week = %s
                 ORDER BY start_time
@@ -161,3 +161,14 @@ def record_daily_report_sent(date):
                 ON CONFLICT (student_id, subject, date, notification_type) DO NOTHING
             """, (date, 'end_of_day_report'))
             conn.commit()
+
+def get_subject_name_by_id(subject_id):
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT subject
+                FROM Schedule
+                WHERE id = %s
+                LIMIT 1
+            """, subject_id)
+            return cur.fetchall()

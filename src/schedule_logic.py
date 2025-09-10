@@ -75,7 +75,7 @@ def check_schedule_and_notify():
 
         lessons_today = db.get_schedule_for_student(subgroup, week_type, day_name)
 
-        for subject, start_time_str in lessons_today:
+        for subject_id, subject, start_time_str in lessons_today:
             try:
                 start_hour, start_minute = map(int, start_time_str.split(':'))
                 lesson_start_time_local_aware = datetime.combine(
@@ -92,7 +92,7 @@ def check_schedule_and_notify():
                              markup = types.InlineKeyboardMarkup()
                              attend_button = types.InlineKeyboardButton(
                                  "Я на паре",
-                                 callback_data=f"attend_{student_db_id}_{subject}"
+                                 callback_data=f"attend_{student_db_id}_{subject_id}"
                              )
                              markup.add(attend_button)
 

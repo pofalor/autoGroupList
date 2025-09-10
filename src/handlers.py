@@ -122,8 +122,8 @@ def attend_other_group_command(message, student_info):
 
         markup = types.InlineKeyboardMarkup()
         schedule_text_list = [f"Пары **{other_subgroup_display} подгруппы** на сегодня ({date_str}, {day_name.capitalize()}, {week_type} неделя):"]
-        for subject, start_time in other_schedule_data:
-            callback_data = f"markother_{student_db_id}_{subject}"
+        for subject_id, subject, start_time in other_schedule_data:
+            callback_data = f"markother_{student_db_id}_{subject_id}"
             button = types.InlineKeyboardButton(f"{start_time} - {subject}", callback_data=callback_data)
             markup.add(button)
             schedule_text_list.append(f"• {start_time} - {subject}")
@@ -194,7 +194,7 @@ def handle_attendance(call):
     chat_id = call.message.chat.id
     message_id = call.message.message_id
     try:
-        _, student_db_id_str, subject = call.data.split("_", 2)
+        _, student_db_id_str, subject_id = call.data.split("_", 2)
         student_db_id = int(student_db_id_str)
     except (ValueError, IndexError):
         logger.exception(f"Ошибка парсинга callback attend_: %s", call.data, exc_info=True)
@@ -214,6 +214,7 @@ def handle_attendance(call):
             logger.exception(f"Не удалось убрать кнопку attend_ после лимита.", exc_info=True)
         return
 
+    subject = db.get_subject_name_by_id(subject_id)
     try:
         local_today = get_local_today()
         db.mark_attendance(student_db_id, subject, local_today, is_present=True)
@@ -238,7 +239,7 @@ def handle_mark_other_attendance(call):
     chat_id = call.message.chat.id
     message_id = call.message.message_id
     try:
-        _, student_db_id_str, subject = call.data.split("_", 2)
+        _, student_db_id_str, subject_id = call.data.split("_", 2)
         student_db_id_from_callback = int(student_db_id_str)
     except (ValueError, IndexError):
         logger.exception("Ошибка парсинга callback markother_: %s", call.data)
@@ -257,6 +258,7 @@ def handle_mark_other_attendance(call):
             logger.exception("Не удалось убрать кнопки markother_ после лимита")
         return
 
+    subject = db.get_subject_name_by_id(subject_id)
     try:
         local_today = get_local_today()
         student_db_id = current_student_info['id']
