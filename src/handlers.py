@@ -5,9 +5,9 @@ from telebot import types
 import functools
 import db
 import schedule_logic
-from time_utils import get_local_today
+from src.utils.time_utils import get_local_today
 from bot_instance import bot, safe_send_message, safe_answer_callback_query
-from config import TIME_LIMIT_HOUR_LOCAL
+from src.config.config import TIME_LIMIT_HOUR_LOCAL
 from logger import logger
 
 def create_main_menu():

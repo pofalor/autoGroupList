@@ -1,6 +1,6 @@
 # bot_instance.py
 import telebot
-from config import TELEGRAM_BOT_TOKEN
+from src.config.config import TELEGRAM_BOT_TOKEN
 from logger import logger
 
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)

@@ -1,5 +1,6 @@
 import logging
-import time_utils
+from src.utils import time_utils
+
 
 def setup_logger():
     # Формируем имя файла с текущей датой

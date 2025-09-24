@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from config import LOCAL_TIMEZONE_NAME
+from src.config.config import LOCAL_TIMEZONE_NAME
 
 try:
     LOCAL_TIMEZONE = ZoneInfo(LOCAL_TIMEZONE_NAME)

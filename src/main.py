@@ -6,9 +6,8 @@ import psycopg2
 import telebot
 import schedule_logic
 from bot_instance import bot
-import handlers
 import db
-from config import TELEGRAM_ADMIN_ID
+from src.config.config import TELEGRAM_ADMIN_ID
 from bot_instance import safe_send_message
 from logger import logger
 

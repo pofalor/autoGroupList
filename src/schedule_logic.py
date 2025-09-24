@@ -1,14 +1,14 @@
 # schedule_logic.py
 
-from datetime import datetime, timezone, time as dt_time
+from datetime import datetime, time as dt_time
 import time as py_time
 import psycopg2
 from telebot import types
 import db
 from bot_instance import safe_send_message
-from config import TELEGRAM_ADMIN_ID, TIME_LIMIT_HOUR_LOCAL
+from src.config.config import TELEGRAM_ADMIN_ID, TIME_LIMIT_HOUR_LOCAL
 from src.logger import logger
-from time_utils import LOCAL_TIMEZONE, get_local_now, get_local_today
+from src.utils.time_utils import LOCAL_TIMEZONE, get_local_now, get_local_today
 
 def get_current_week_type_and_day():
     now_local = get_local_now()

@@ -1,9 +1,9 @@
 # db.py
 
-from datetime import datetime, timezone, time as dt_time
+from datetime import datetime, timezone
 import psycopg2
-from config import DB_CONFIG
-from time_utils import get_local_now, get_local_today
+from src.config.config import DB_CONFIG
+from src.utils.time_utils import get_local_today
 
 def get_db_connection():
     try:
