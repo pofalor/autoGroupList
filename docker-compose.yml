@@ -1,0 +1,47 @@
+services:
+  db:
+    image: postgres:16
+    container_name: grouplist-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-grouplist}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Задайте POSTGRES_PASSWORD в файле .env}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-grouplist}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: GroupListNet/Dockerfile
+    container_name: grouplist-bot
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # Двойное подчёркивание — разделитель секций конфигурации в ASP.NET Core
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=${POSTGRES_DB:-grouplist};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD}"
+      TelegramSettings__TelegramBotToken: ${TELEGRAM_BOT_TOKEN:?Задайте TELEGRAM_BOT_TOKEN в файле .env}
+      TelegramSettings__AdminTelegramIds: ${ADMIN_TELEGRAM_IDS:-}
+      TelegramSettings__LeaderTelegramIds: ${LEADER_TELEGRAM_IDS:?Задайте LEADER_TELEGRAM_IDS в файле .env}
+      SendingSettings__DeadlineTime: ${DEADLINE_TIME:-17:00}
+      SiteSettings__MarkAttendanceOnSite: ${MARK_ATTENDANCE_ON_SITE:-false}
+      SiteSettings__Username: ${SITE_USERNAME:-}
+      SiteSettings__Password: ${SITE_PASSWORD:-}
+      SiteSettings__ChromeBinaryPath: /usr/bin/chromium
+      SiteSettings__ChromeDriverDirectory: /usr/bin
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    volumes:
+      - app-logs:/app/logs
+
+volumes:
+  db-data:
+  app-logs:
