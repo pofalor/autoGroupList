@@ -49,6 +49,19 @@ namespace GroupListNet.Core.src.DataAccess.BaseClasses
                              .ToListAsync();
         }
 
+        public async Task<IEnumerable<Attendance>> GetAttendanceForReportAsync(DateOnly date)
+        {
+            // Условия на IsDeleted нет намеренно: перезаливка расписания или списка группы
+            // помечает отметки удалёнными, но в отчёт за прошедший день они должны попасть
+            return await _dbSet.Where(a => DateOnly.FromDateTime(a.Date) == date)
+                             .Include(a => a.Student)
+                             .Include(a => a.Schedule)
+                             .ThenInclude(s => s!.Subject)
+                             .OrderBy(a => a.Schedule!.StartTime)
+                             .ThenBy(a => a.Student!.NumberInGroup)
+                             .ToListAsync();
+        }
+
         public async Task<bool> HasAttendanceAsync(int studentId, int scheduleId, DateOnly date)
         {
             return await _dbSet.AnyAsync(a => a.StudentId == studentId &&

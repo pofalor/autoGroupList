@@ -1,5 +1,4 @@
-using GroupListNet.Core.src.Bot;
-using GroupListNet.Core.src.Bot.Models;
+﻿using GroupListNet.Core.src.Bot;
 using GroupListNet.Core.src.DataAccess.IReposetories;
 using GroupListNet.Core.src.Entities;
 using GroupListNet.Core.src.Enums;
@@ -58,6 +57,7 @@ namespace GroupListNet.Core.src.BackgroundJobs
             try
             {
                 var notificationRepo = scope.ServiceProvider.GetRequiredService<INotificationRepository>();
+                var messageBuilder = scope.ServiceProvider.GetRequiredService<NotificationMessageBuilder>();
 
                 foreach (var client in _clients.Where(candidate => candidate.IsEnabled))
                 {
@@ -66,7 +66,7 @@ namespace GroupListNet.Core.src.BackgroundJobs
 
                     foreach (var notification in unsentNotifications)
                     {
-                        await SendOneAsync(client, notification, notificationRepo, logNotificatorService);
+                        await SendOneAsync(client, notification, notificationRepo, messageBuilder, logNotificatorService);
                     }
                 }
             }
@@ -83,6 +83,7 @@ namespace GroupListNet.Core.src.BackgroundJobs
         private async Task SendOneAsync(IMessengerClient client,
             Notification notification,
             INotificationRepository notificationRepo,
+            NotificationMessageBuilder messageBuilder,
             ILogNotificatorService logNotificatorService)
         {
             try
@@ -98,17 +99,18 @@ namespace GroupListNet.Core.src.BackgroundJobs
                     return;
                 }
 
-                // Для типа NotificationType.EndDayReport в поле Text хранится просто строка с сообщением
-                var notificationText = notification.Text;
-                BotKeyboard? keyboard = null;
-
-                // Для типа NotificationType.StartClass текст и кнопки лежат в JSON
-                if (notification.NotificationType == NotificationType.StartClass)
+                // Текста в базе нет, собираем сообщение из расписания и отметок
+                var message = await messageBuilder.BuildAsync(notification);
+                if (message == null)
                 {
-                    (notificationText, keyboard) = NotificationPayload.Parse(notification.Text);
+                    _logger.LogWarning("Уведомление {NotificationId} ({NotificationType}) нечем наполнить, пропускаем.",
+                        notification.Id, notification.NotificationType);
+                    // Помечаем как отправленное, иначе оно будет перебираться каждую минуту
+                    await notificationRepo.MarkAsSentAsync(notification);
+                    return;
                 }
 
-                await client.SendMessageAsync(messengerId, notificationText, keyboard);
+                await client.SendMessageAsync(messengerId, message.Value.Text, message.Value.Keyboard);
 
                 // Помечаем уведомление как отправленное в базе данных
                 await notificationRepo.MarkAsSentAsync(notification);

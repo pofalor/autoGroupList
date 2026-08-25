@@ -1,6 +1,5 @@
 ﻿using GroupListNet.Core.src.ConfigSectionModels;
 using GroupListNet.Core.src.DataAccess.IReposetories;
-using GroupListNet.Core.src.Entities.Utils;
 using GroupListNet.Core.src.Enums;
 using GroupListNet.Core.src.Services;
 using GroupListNet.Core.src.Services.Impl;
@@ -74,7 +73,6 @@ namespace GroupListNet.Core.src.BackgroundJobs
                     var _logNotificatorService = scope.ServiceProvider.GetRequiredService<ILogNotificatorService>();
                     var _leaderRepository = scope.ServiceProvider.GetRequiredService<ILeaderRepository>();
                     var _notificationRepository = scope.ServiceProvider.GetRequiredService<INotificationRepository>();
-                    var _attendanceRepository = scope.ServiceProvider.GetRequiredService<IAttendanceRepository>();
 
                     var leaderIds = await _leaderRepository.GetLeaderIds();
                     if (leaderIds.Length == 0)
@@ -85,10 +83,7 @@ namespace GroupListNet.Core.src.BackgroundJobs
 
                     var _studentRepository = scope.ServiceProvider.GetRequiredService<IStudentRepository>();
 
-                    var attendanceData = await _attendanceRepository.GetTodayAttendanceAsync();
-
-                    string messageToLeader = LeaderListFormatter.FormatGroupList(attendanceData, today);
-
+                    // Текст отчёта собирается при отправке, здесь только решаем, кому он нужен
                     // Отчёт нужен в каждом мессенджере, который староста привязал: он может читать бота где угодно
                     foreach (var messenger in Enum.GetValues<MessengerType>())
                     {
@@ -104,13 +99,13 @@ namespace GroupListNet.Core.src.BackgroundJobs
                                 if (leader == null || string.IsNullOrWhiteSpace(leader.GetMessengerId(messenger)))
                                     continue;
 
-                                await _notificationRepository.RecordDailyReportSentAsync(leaderId, today, messageToLeader, messenger);
+                                await _notificationRepository.RecordDailyReportSentAsync(leaderId, today, messenger);
                             }
                             catch (Exception ex)
                             {
-                                _logger.LogError(ex, "В {ClassName} ошибка отправки отчёта старосте. Id старосты:{LeaderId}. День:{Today}. " +
-                                    "Мессенджер:{Messenger}. Сообщение:{Message}{NewLine}",
-                             nameof(LeaderBackgroundJob), leaderId, today, messenger, messageToLeader, Environment.NewLine);
+                                _logger.LogError(ex, "В {ClassName} ошибка создания отчёта старосте. Id старосты:{LeaderId}. День:{Today}. " +
+                                    "Мессенджер:{Messenger}.{NewLine}",
+                             nameof(LeaderBackgroundJob), leaderId, today, messenger, Environment.NewLine);
                             }
                         }
                     }

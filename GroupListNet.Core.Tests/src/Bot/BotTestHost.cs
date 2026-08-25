@@ -56,6 +56,7 @@ namespace GroupListNet.Core.Tests.src.Bot
             services.AddScoped<ISubjectRepository, SubjectRepository>();
             services.AddScoped<ILeaderService, LeaderService>();
             services.AddScoped<ILogNotificatorService, LogNotificatorService>();
+            services.AddScoped<NotificationMessageBuilder>();
             services.AddSingleton<IMessengerClient>(Telegram);
             services.AddSingleton<IMessengerClient>(Vk);
             services.AddSingleton<BotUpdateHandler>();
@@ -124,7 +125,9 @@ namespace GroupListNet.Core.Tests.src.Bot
             return student;
         }
 
-        public async Task<Schedule> AddTodayScheduleAsync(string subjectName = "Матанализ")
+        public async Task<Schedule> AddTodayScheduleAsync(string subjectName = "Матанализ",
+            string building = "",
+            string room = "")
         {
             using var scope = _provider.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -138,11 +141,103 @@ namespace GroupListNet.Core.Tests.src.Bot
                 // Конкретная дата вместо дня недели: занятие точно попадает на сегодня
                 Date = DateOnly.FromDateTime(DateTime.Today),
                 StartTime = new TimeSpan(9, 0, 0),
-                ClassType = ClassType.Lecture
+                ClassType = ClassType.Lecture,
+                Building = building,
+                Room = room
             };
             context.Set<Schedule>().Add(schedule);
             await context.SaveChangesAsync();
             return schedule;
+        }
+
+        /// <summary>
+        /// Заводит уведомление так же, как это делают фоновые задачи, и при необходимости
+        /// сдвигает дату создания в прошлое
+        /// </summary>
+        public async Task<int> AddNotificationAsync(NotificationType type,
+            int studentId,
+            int? scheduleId = null,
+            MessengerType messenger = MessengerType.Telegram,
+            DateOnly? createdOn = null)
+        {
+            using var scope = _provider.CreateScope();
+            var repository = scope.ServiceProvider.GetRequiredService<INotificationRepository>();
+
+            if (type == NotificationType.StartClass)
+                await repository.RecordStartClassNotificationAsync(studentId, scheduleId!.Value, messenger);
+            else
+                await repository.RecordDailyReportSentAsync(studentId, createdOn ?? DateOnly.FromDateTime(DateTime.UtcNow), messenger);
+
+            var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var notification = await context.Set<Notification>()
+                .OrderByDescending(item => item.Id)
+                .FirstAsync();
+
+            if (createdOn != null)
+            {
+                // Дату создания проставляет контекст, поэтому сдвигаем её отдельно
+                notification.ObjectCreateDate = createdOn.Value.ToDateTime(new TimeOnly(18, 0));
+                await context.SaveChangesAsync();
+            }
+
+            return notification.Id;
+        }
+
+        /// <summary>
+        /// Собирает сообщение так же, как это делает отправщик: уведомление берётся тем же
+        /// запросом, поэтому проверяются и его Include
+        /// </summary>
+        public async Task<(string Text, BotKeyboard? Keyboard)?> BuildMessageAsync(int notificationId,
+            MessengerType messenger = MessengerType.Telegram)
+        {
+            using var scope = _provider.CreateScope();
+            var repository = scope.ServiceProvider.GetRequiredService<INotificationRepository>();
+            var builder = scope.ServiceProvider.GetRequiredService<NotificationMessageBuilder>();
+
+            var notification = (await repository.GetUnsentNotificationsAsync(messenger))
+                .Single(item => item.Id == notificationId);
+
+            return await builder.BuildAsync(notification);
+        }
+
+        /// <summary>
+        /// Делает из уведомления несогласованную запись: тип «начало пары», а расписания нет.
+        /// Штатно такого не бывает, нужно для проверки защитной ветки сборщика
+        /// </summary>
+        public async Task ChangeNotificationTypeToStartClassAsync(int notificationId)
+        {
+            using var scope = _provider.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var notification = await context.Set<Notification>().FirstAsync(item => item.Id == notificationId);
+            notification.NotificationType = NotificationType.StartClass;
+            await context.SaveChangesAsync();
+        }
+
+        public async Task MarkAttendanceAsync(int studentId, int scheduleId, DateTime date)
+        {
+            using var scope = _provider.CreateScope();
+            var repository = scope.ServiceProvider.GetRequiredService<IAttendanceRepository>();
+            await repository.MarkAttendanceAsync(studentId, scheduleId, date);
+        }
+
+        /// <summary>
+        /// Помечает удалённым всё, что уходит в архив при перезаливке расписания и списка группы
+        /// </summary>
+        public async Task ArchiveGroupDataAsync()
+        {
+            using var scope = _provider.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            foreach (var attendance in await context.Set<Attendance>().ToListAsync())
+                attendance.IsDeleted = true;
+            foreach (var schedule in await context.Set<Schedule>().ToListAsync())
+                schedule.IsDeleted = true;
+            foreach (var subject in await context.Set<Subject>().ToListAsync())
+                subject.IsDeleted = true;
+            foreach (var student in await context.Set<Student>().ToListAsync())
+                student.IsDeleted = true;
+
+            await context.SaveChangesAsync();
         }
 
         public async Task<Student?> ReloadStudentAsync(int studentId)

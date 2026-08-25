@@ -13,7 +13,6 @@ namespace GroupListNet.Core.src.Entities
         public MessengerType Messenger { get; set; }
         public bool IsSent { get; set; }
         public DateTime? SentAt { get; set; }
-        public string Text { get; set; } = null!;
 
         /// <summary>
         /// В отчёте старосте проставляется айди старосты

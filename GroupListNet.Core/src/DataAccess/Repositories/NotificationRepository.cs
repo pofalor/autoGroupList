@@ -43,6 +43,9 @@ namespace GroupListNet.Core.src.DataAccess.BaseClasses
         {
             return await _dbSet
                 .Include(x => x.Student)
+                // Расписание с предметом нужны, чтобы собрать текст напоминания при отправке
+                .Include(x => x.Schedule)
+                .ThenInclude(s => s!.Subject)
                 .Where(n => n.Messenger == messenger)
                 .Where(n => !n.IsSent)
                 .Where(n => !n.IsDeleted)
@@ -50,7 +53,7 @@ namespace GroupListNet.Core.src.DataAccess.BaseClasses
                 .ToListAsync();
         }
 
-        public async Task RecordStartClassNotificationAsync(int studentId, int scheduleId, string text, MessengerType messenger)
+        public async Task RecordStartClassNotificationAsync(int studentId, int scheduleId, MessengerType messenger)
         {
             var notification = new Notification
             {
@@ -58,20 +61,18 @@ namespace GroupListNet.Core.src.DataAccess.BaseClasses
                 ScheduleId = scheduleId,
                 NotificationType = NotificationType.StartClass,
                 Messenger = messenger,
-                Text = text,
             };
             await AddAsync(notification);
             await _context.SaveChangesAsync();
         }
 
-        public async Task RecordDailyReportSentAsync(int leaderStudentId, DateOnly date, string text, MessengerType messenger)
+        public async Task RecordDailyReportSentAsync(int leaderStudentId, DateOnly date, MessengerType messenger)
         {
             var notification = new Notification
             {
                 StudentId = leaderStudentId,
                 NotificationType = NotificationType.EndDayReport,
                 Messenger = messenger,
-                Text = text,
             };
             await AddAsync(notification);
             await _context.SaveChangesAsync();

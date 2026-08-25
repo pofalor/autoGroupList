@@ -17,8 +17,8 @@ namespace GroupListNet.Core.src.DataAccess.IReposetories
         /// <param name="date"></param>
         /// <returns></returns>
         Task<int[]> ExceptSentReportAsync(int[] leaders, DateOnly date, MessengerType messenger);
-        Task RecordStartClassNotificationAsync(int studentId, int scheduleId, string text, MessengerType messenger);
-        Task RecordDailyReportSentAsync(int leaderStudentId, DateOnly date, string text, MessengerType messenger);
+        Task RecordStartClassNotificationAsync(int studentId, int scheduleId, MessengerType messenger);
+        Task RecordDailyReportSentAsync(int leaderStudentId, DateOnly date, MessengerType messenger);
 
         /// <summary>
         /// Неотправленные уведомления конкретного мессенджера. Каждый бот забирает только свои,

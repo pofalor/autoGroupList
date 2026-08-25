@@ -1,5 +1,4 @@
-﻿using GroupListNet.Core.src.Bot.Models;
-using GroupListNet.Core.src.ConfigSectionModels;
+﻿using GroupListNet.Core.src.ConfigSectionModels;
 using GroupListNet.Core.src.DataAccess.IReposetories;
 using GroupListNet.Core.src.Enums;
 using GroupListNet.Core.src.Services;
@@ -122,19 +121,8 @@ namespace GroupListNet.Core.src.BackgroundJobs
                             if (studentSubgroup.HasValue && scheduleItem.Subgroup.HasValue && scheduleItem.Subgroup != studentSubgroup)
                                 continue;
 
-                            // Создаём текст уведомления
-                            var messageText = $"🔔 Напоминание: Занятие '{scheduleItem.Subject.Name}' начинается в {scheduleItem.StartTime:hh\\:mm}{Environment.NewLine}";
-                            if(!string.IsNullOrEmpty(scheduleItem.Building))
-                                messageText += $"Здание - {scheduleItem.Building}. ";
-                            if(!string.IsNullOrEmpty(scheduleItem.Room))
-                                messageText += $"Аудитория - {scheduleItem.Room}";
-                            messageText += $"{Environment.NewLine}Нажмите кнопку, чтобы подтвердить присутствие.";
-
-                            // Кнопка отметки. Используем Id предмета (Schedule.Id)
-                            var markup = BotKeyboard.InlineRow(new BotButton("Я на паре", $"attend_{student.Id}_{scheduleItem.Id}"));
-
-                            var jsonText = NotificationPayload.Serialize(messageText, markup);
-
+                            // Текст и кнопка собираются при отправке из расписания,
+                            // в базе лежит только сам факт уведомления
                             // Студент мог привязать оба мессенджера — уведомление создаём в каждый из них
                             foreach (var messenger in student.GetLinkedMessengers())
                             {
@@ -146,7 +134,7 @@ namespace GroupListNet.Core.src.BackgroundJobs
                                 if (!notificationAlreadySent)
                                 {
                                     // Сохраняем уведомление в базу данных
-                                    await notificationRepo.RecordStartClassNotificationAsync(student.Id, scheduleItem.Id, jsonText, messenger);
+                                    await notificationRepo.RecordStartClassNotificationAsync(student.Id, scheduleItem.Id, messenger);
                                     _logger.LogDebug("Уведомление для студента {StudentId} по предмету {ScheduleId} в {Messenger} сохранено в базу.",
                                         student.Id, scheduleItem.Id, messenger);
                                 }

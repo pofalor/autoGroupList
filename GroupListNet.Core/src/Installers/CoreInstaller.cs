@@ -32,6 +32,7 @@ namespace GroupListNet.Core.src.Installers
         public static IServiceCollection AddCoreServices(this IServiceCollection services)
         {
             services.AddScoped<ILeaderService, LeaderService>();
+            services.AddScoped<NotificationMessageBuilder>();
             services.AddScoped<ILogNotificatorService, LogNotificatorService>();
             services.AddScoped<ISosService, SosService>();
 

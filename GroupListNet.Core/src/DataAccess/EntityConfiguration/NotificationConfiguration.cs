@@ -15,7 +15,6 @@ namespace GroupListNet.Core.src.DataAccess.EntityConfiguration
             builder.Property(p => p.Messenger).HasColumnName("messenger").IsRequired().HasDefaultValue(MessengerType.Telegram);
             builder.Property(p => p.IsSent).HasColumnName("is_sent").IsRequired().HasDefaultValue(false);
             builder.Property(p => p.SentAt).HasColumnName("sent_at");
-            builder.Property(p => p.Text).HasColumnName("text");
             builder.Property(p => p.ErrorMessage).HasColumnName("error_message");
 
             builder.HasOne(p => p.Student)
