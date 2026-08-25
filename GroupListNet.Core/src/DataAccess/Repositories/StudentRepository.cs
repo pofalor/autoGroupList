@@ -7,9 +7,17 @@ namespace GroupListNet.Core.src.DataAccess.BaseClasses
 {
     public class StudentRepository(ApplicationDbContext context) : Repository<Student>(context), IStudentRepository
     {
-        public async Task<Student?> GetByTelegramIdAsync(string telegramId)
+        public async Task<Student?> GetByMessengerIdAsync(MessengerType messenger, string messengerId)
         {
-            return await _dbSet.FirstOrDefaultAsync(s => s.TelegramId == telegramId && !s.IsDeleted);
+            if (string.IsNullOrWhiteSpace(messengerId))
+                return null;
+
+            return messenger switch
+            {
+                MessengerType.Telegram => await _dbSet.FirstOrDefaultAsync(s => s.TelegramId == messengerId && !s.IsDeleted),
+                MessengerType.Vk => await _dbSet.FirstOrDefaultAsync(s => s.VkId == messengerId && !s.IsDeleted),
+                _ => throw new ArgumentOutOfRangeException(nameof(messenger), messenger, "Неизвестный мессенджер.")
+            };
         }
 
         public async Task<Student?> GetByNumberInGroupAsync(int number)
@@ -17,28 +25,35 @@ namespace GroupListNet.Core.src.DataAccess.BaseClasses
             return await _dbSet.FirstOrDefaultAsync(s => s.NumberInGroup == number && !s.IsDeleted);
         }
 
-        public async Task<bool> IsNumberTakenAsync(int number)
+        public async Task<bool> IsNumberTakenAsync(int number, MessengerType messenger)
         {
-            return await _dbSet.AnyAsync(s => s.NumberInGroup == number &&
-                                            s.TelegramId != null &&
-                                            !s.IsDeleted);
+            return messenger switch
+            {
+                MessengerType.Telegram => await _dbSet.AnyAsync(s => s.NumberInGroup == number && s.TelegramId != null && !s.IsDeleted),
+                MessengerType.Vk => await _dbSet.AnyAsync(s => s.NumberInGroup == number && s.VkId != null && !s.IsDeleted),
+                _ => throw new ArgumentOutOfRangeException(nameof(messenger), messenger, "Неизвестный мессенджер.")
+            };
         }
 
-        public async Task<IEnumerable<Student>> GetStudentsWithTelegramAsync()
+        public async Task<IEnumerable<Student>> GetStudentsWithAnyMessengerAsync()
         {
-            return await _dbSet.Where(s => s.TelegramId != null && !s.IsDeleted)
+            return await _dbSet.Where(s => (s.TelegramId != null || s.VkId != null) && !s.IsDeleted)
                              .ToListAsync();
         }
 
-        public async Task<IEnumerable<Student>> GetStudentsWithoutTelegramAsync()
+        public async Task<IEnumerable<Student>> GetStudentsWithoutAccountAsync(MessengerType messenger)
         {
-            return await _dbSet.Where(s => s.TelegramId == null && !s.IsDeleted)
-                             .ToListAsync();
+            return messenger switch
+            {
+                MessengerType.Telegram => await _dbSet.Where(s => s.TelegramId == null && !s.IsDeleted).ToListAsync(),
+                MessengerType.Vk => await _dbSet.Where(s => s.VkId == null && !s.IsDeleted).ToListAsync(),
+                _ => throw new ArgumentOutOfRangeException(nameof(messenger), messenger, "Неизвестный мессенджер.")
+            };
         }
 
-        public async Task UpdateStudentSubgroupAsync(string telegramId, Subgroup? subgroup)
+        public async Task UpdateStudentSubgroupAsync(MessengerType messenger, string messengerId, Subgroup? subgroup)
         {
-            var student = await GetByTelegramIdAsync(telegramId);
+            var student = await GetByMessengerIdAsync(messenger, messengerId);
             if (student != null)
             {
                 student.Subgroup = subgroup;

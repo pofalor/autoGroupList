@@ -15,6 +15,7 @@ namespace GroupListNet.Core.src.DataAccess.EntityConfiguration
             builder.Property(p => p.FatherName).HasColumnName("father_name").IsRequired();
             builder.Property(p => p.NumberInGroup).HasColumnName("number_in_group").IsRequired();
             builder.Property(p => p.TelegramId).HasColumnName("telegram_id");
+            builder.Property(p => p.VkId).HasColumnName("vk_id");
             builder.Property(p => p.Subgroup).HasColumnName("subgroup");
         }
     }

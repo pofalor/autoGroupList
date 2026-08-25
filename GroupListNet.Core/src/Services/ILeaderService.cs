@@ -1,5 +1,6 @@
 using GroupListNet.Core.src.DataResult;
 using GroupListNet.Core.src.Entities;
+using GroupListNet.Core.src.Enums;
 
 namespace GroupListNet.Core.src.Services
 {
@@ -11,15 +12,25 @@ namespace GroupListNet.Core.src.Services
         /// <summary>
         /// Доступны ли пользователю команды старосты (основной староста из конфига или назначенный помощник)
         /// </summary>
-        Task<bool> IsLeaderAsync(string? telegramId);
+        Task<bool> IsLeaderAsync(MessengerType messenger, string? messengerId);
 
         /// <summary>
         /// Основной староста задан в конфиге, снять его через бота нельзя
         /// </summary>
-        bool IsMainLeader(string? telegramId);
+        bool IsMainLeader(MessengerType messenger, string? messengerId);
 
         /// <summary>
-        /// Заводит записи старост для телеграм айди из конфига, если такие студенты уже зарегистрированы.
+        /// Основной ли это староста с учётом всех привязанных мессенджеров студента
+        /// </summary>
+        bool IsMainLeader(Student student);
+
+        /// <summary>
+        /// Администраторы задаются в конфиге отдельно для каждого мессенджера
+        /// </summary>
+        bool IsAdmin(MessengerType messenger, string? messengerId);
+
+        /// <summary>
+        /// Заводит записи старост для айди из конфига, если такие студенты уже зарегистрированы.
         /// Вызывается после регистрации студента и после обновления списка группы
         /// </summary>
         Task SyncMainLeadersAsync();

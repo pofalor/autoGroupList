@@ -1,5 +1,6 @@
 ﻿using GroupListNet.Core.src.DataAccess.IReposetories;
 using GroupListNet.Core.src.Entities;
+using GroupListNet.Core.src.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace GroupListNet.Core.src.DataAccess.BaseClasses
@@ -8,12 +9,20 @@ namespace GroupListNet.Core.src.DataAccess.BaseClasses
     {
         public LeaderRepository(ApplicationDbContext context) : base(context) { }
 
-        public async Task<bool> IsLeaderAsync(string telegramId)
+        public async Task<bool> IsLeaderAsync(MessengerType messenger, string messengerId)
         {
-            return await _dbSet.Include(l => l.Student)
-                             .AnyAsync(l => l.Student.TelegramId == telegramId &&
-                                            !l.Student.IsDeleted &&
-                                            !l.IsDeleted);
+            if (string.IsNullOrWhiteSpace(messengerId))
+                return false;
+
+            var leaders = _dbSet.Include(l => l.Student)
+                .Where(l => !l.Student.IsDeleted && !l.IsDeleted);
+
+            return messenger switch
+            {
+                MessengerType.Telegram => await leaders.AnyAsync(l => l.Student.TelegramId == messengerId),
+                MessengerType.Vk => await leaders.AnyAsync(l => l.Student.VkId == messengerId),
+                _ => throw new ArgumentOutOfRangeException(nameof(messenger), messenger, "Неизвестный мессенджер.")
+            };
         }
 
         public async Task<int[]> GetLeaderIds()

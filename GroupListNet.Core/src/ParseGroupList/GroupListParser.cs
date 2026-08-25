@@ -27,7 +27,7 @@ namespace GroupListNet.Core.src.ParseGroupList
             var errors = new List<string>();
             var parsedLines = new List<ParsedStudentLine>();
 
-            foreach (var sourceLine in text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            foreach (var sourceLine in text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
                 var line = NormalizeLine(sourceLine);
 

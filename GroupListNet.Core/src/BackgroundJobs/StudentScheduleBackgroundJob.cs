@@ -1,4 +1,5 @@
-﻿using GroupListNet.Core.src.ConfigSectionModels;
+﻿using GroupListNet.Core.src.Bot.Models;
+using GroupListNet.Core.src.ConfigSectionModels;
 using GroupListNet.Core.src.DataAccess.IReposetories;
 using GroupListNet.Core.src.Enums;
 using GroupListNet.Core.src.Services;
@@ -9,8 +10,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
 using System.Text;
-using System.Text.Json;
-using Telegram.Bot.Types.ReplyMarkups;
 
 namespace GroupListNet.Core.src.BackgroundJobs
 {
@@ -107,10 +106,10 @@ namespace GroupListNet.Core.src.BackgroundJobs
                 var studentRepo = scope.ServiceProvider.GetRequiredService<IStudentRepository>();
                 var notificationRepo = scope.ServiceProvider.GetRequiredService<INotificationRepository>();
 
-                // Получаем всех студентов с привязанным Telegram ID
-                var allStudentsWithTelegram = await studentRepo.GetStudentsWithTelegramAsync();
+                // Получаем всех студентов, привязавших хотя бы один мессенджер
+                var registeredStudents = await studentRepo.GetStudentsWithAnyMessengerAsync();
 
-                foreach (var student in allStudentsWithTelegram)
+                foreach (var student in registeredStudents)
                 {
                     // Определяем подгруппу студента для получения расписания
                     // Если у студента нет подгруппы (null), он получает уведомления о парах обеих подгрупп
@@ -123,45 +122,34 @@ namespace GroupListNet.Core.src.BackgroundJobs
                             if (studentSubgroup.HasValue && scheduleItem.Subgroup.HasValue && scheduleItem.Subgroup != studentSubgroup)
                                 continue;
 
-                            // Уведомление отправляется, если время начала пары наступило или прошло, но не позже дедлайна (если дедлайн еще не прошёл)
-                            // Или отправляется, даже если дедлайн прошёл, но кнопка не нужна (только уведомление о том, что пара началась)
-                            // Важно: проверить, не было ли уже отправлено уведомление
-                            var notificationAlreadySent = await notificationRepo.IsStartClassNotificationSentAsync(student.Id, scheduleItem.Id, today);
+                            // Создаём текст уведомления
+                            var messageText = $"🔔 Напоминание: Занятие '{scheduleItem.Subject.Name}' начинается в {scheduleItem.StartTime:hh\\:mm}{Environment.NewLine}";
+                            if(!string.IsNullOrEmpty(scheduleItem.Building))
+                                messageText += $"Здание - {scheduleItem.Building}. ";
+                            if(!string.IsNullOrEmpty(scheduleItem.Room))
+                                messageText += $"Аудитория - {scheduleItem.Room}";
+                            messageText += $"{Environment.NewLine}Нажмите кнопку, чтобы подтвердить присутствие.";
 
-                            if (!notificationAlreadySent)
+                            // Кнопка отметки. Используем Id предмета (Schedule.Id)
+                            var markup = BotKeyboard.InlineRow(new BotButton("Я на паре", $"attend_{student.Id}_{scheduleItem.Id}"));
+
+                            var jsonText = NotificationPayload.Serialize(messageText, markup);
+
+                            // Студент мог привязать оба мессенджера — уведомление создаём в каждый из них
+                            foreach (var messenger in student.GetLinkedMessengers())
                             {
-                                // Создаём текст уведомления
-                                var messageText = $"🔔 Напоминание: Занятие '{scheduleItem.Subject.Name}' начинается в {scheduleItem.StartTime:hh\\:mm}{Environment.NewLine}";
-                                if(!string.IsNullOrEmpty(scheduleItem.Building))
-                                    messageText += $"Здание - {scheduleItem.Building}. ";
-                                if(!string.IsNullOrEmpty(scheduleItem.Room))
-                                    messageText += $"Аудитория - {scheduleItem.Room}";
-                                messageText += $"{Environment.NewLine}Нажмите кнопку, чтобы подтвердить присутствие.";
+                                // Уведомление отправляется, если время начала пары наступило или прошло, но не позже дедлайна (если дедлайн еще не прошёл)
+                                // Или отправляется, даже если дедлайн прошёл, но кнопка не нужна (только уведомление о том, что пара началась)
+                                // Важно: проверить, не было ли уже отправлено уведомление
+                                var notificationAlreadySent = await notificationRepo.IsStartClassNotificationSentAsync(student.Id, scheduleItem.Id, today, messenger);
 
-                                // Подготовка InlineKeyboardMarkup для уведомления
-                                var markup = new InlineKeyboardMarkup(new[]
+                                if (!notificationAlreadySent)
                                 {
-                                new[] // Одна строка кнопок
-                                {
-                                    new InlineKeyboardButton("Я на паре")
-                                    {
-                                        CallbackData = $"attend_{student.Id}_{scheduleItem.Id}" // Используем Id предмета (Schedule.Id)
-                                    }
-                                }});
-
-                                // Подготовка объекта для сериализации
-                                var notificationPayload = new
-                                {
-                                    Text = messageText,
-                                    InlineKeyboard = markup 
-                                };
-
-                                // Сериализация в JSON
-                                var jsonText = JsonSerializer.Serialize(notificationPayload);
-
-                                // Сохраняем уведомление в базу данных
-                                await notificationRepo.RecordStartClassNotificationAsync(student.Id, scheduleItem.Id, jsonText);
-                                _logger.LogDebug("Уведомление для студента {StudentId} по предмету {ScheduleId} сохранено в базу.", student.Id, scheduleItem.Id);
+                                    // Сохраняем уведомление в базу данных
+                                    await notificationRepo.RecordStartClassNotificationAsync(student.Id, scheduleItem.Id, jsonText, messenger);
+                                    _logger.LogDebug("Уведомление для студента {StudentId} по предмету {ScheduleId} в {Messenger} сохранено в базу.",
+                                        student.Id, scheduleItem.Id, messenger);
+                                }
                             }
                         }
                         catch (Exception ex)
