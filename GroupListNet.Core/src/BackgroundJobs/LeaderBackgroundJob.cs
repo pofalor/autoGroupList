@@ -1,6 +1,6 @@
 ﻿using GroupListNet.Core.src.ConfigSectionModels;
 using GroupListNet.Core.src.DataAccess.IReposetories;
-using GroupListNet.Core.src.Entities.Utils;
+using GroupListNet.Core.src.Enums;
 using GroupListNet.Core.src.Services;
 using GroupListNet.Core.src.Services.Impl;
 using Microsoft.Extensions.Configuration;
@@ -73,34 +73,40 @@ namespace GroupListNet.Core.src.BackgroundJobs
                     var _logNotificatorService = scope.ServiceProvider.GetRequiredService<ILogNotificatorService>();
                     var _leaderRepository = scope.ServiceProvider.GetRequiredService<ILeaderRepository>();
                     var _notificationRepository = scope.ServiceProvider.GetRequiredService<INotificationRepository>();
-                    var _attendanceRepository = scope.ServiceProvider.GetRequiredService<IAttendanceRepository>();
 
                     var leaderIds = await _leaderRepository.GetLeaderIds();
                     if (leaderIds.Length == 0)
                     {
-                        await _logNotificatorService.SendTelegramAdminAsync("Не удалось найти старосту в таблице старост. Ежедневный отчёт не был отправлен.");
+                        await _logNotificatorService.NotifyAdminsAsync("Не удалось найти старосту в таблице старост. Ежедневный отчёт не был отправлен.");
                         return;
                     }
 
-                    leaderIds = await _notificationRepository.ExceptSentReportAsync(leaderIds, today);
+                    var _studentRepository = scope.ServiceProvider.GetRequiredService<IStudentRepository>();
 
-                    if (leaderIds.Length == 0) return;
-
-                    var attendanceData = await _attendanceRepository.GetTodayAttendanceAsync();
-
-                    string messageToLeader = LeaderListFormatter.FormatGroupList(attendanceData, today);
-
-                    foreach (var leaderId in leaderIds)
+                    // Текст отчёта собирается при отправке, здесь только решаем, кому он нужен
+                    // Отчёт нужен в каждом мессенджере, который староста привязал: он может читать бота где угодно
+                    foreach (var messenger in Enum.GetValues<MessengerType>())
                     {
-                        try
+                        var leaderIdsForMessenger = await _notificationRepository.ExceptSentReportAsync(leaderIds, today, messenger);
+
+                        foreach (var leaderId in leaderIdsForMessenger)
                         {
-                            await _notificationRepository.RecordDailyReportSentAsync(leaderId, today, messageToLeader);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "В {ClassName} ошибка отправки отчёта старосте. Id старосты:{LeaderId}. День:{Today}. " +
-                                "Сообщение:{Message}{NewLine}",
-                         nameof(LeaderBackgroundJob), leaderId, today, messageToLeader, Environment.NewLine);
+                            try
+                            {
+                                var leader = await _studentRepository.GetByIdAsync(leaderId);
+
+                                // Старосте без этого мессенджера отчёт слать некуда
+                                if (leader == null || string.IsNullOrWhiteSpace(leader.GetMessengerId(messenger)))
+                                    continue;
+
+                                await _notificationRepository.RecordDailyReportSentAsync(leaderId, today, messenger);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "В {ClassName} ошибка создания отчёта старосте. Id старосты:{LeaderId}. День:{Today}. " +
+                                    "Мессенджер:{Messenger}.{NewLine}",
+                             nameof(LeaderBackgroundJob), leaderId, today, messenger, Environment.NewLine);
+                            }
                         }
                     }
                 }

@@ -31,6 +31,11 @@ services:
       TelegramSettings__TelegramBotToken: ${TELEGRAM_BOT_TOKEN:?Задайте TELEGRAM_BOT_TOKEN в файле .env}
       TelegramSettings__AdminTelegramIds: ${ADMIN_TELEGRAM_IDS:-}
       TelegramSettings__LeaderTelegramIds: ${LEADER_TELEGRAM_IDS:?Задайте LEADER_TELEGRAM_IDS в файле .env}
+      # ВКонтакте необязателен: без токена сообщества бот там просто не поднимется
+      VkSettings__VkGroupToken: ${VK_GROUP_TOKEN:-}
+      VkSettings__VkGroupId: ${VK_GROUP_ID:-}
+      VkSettings__AdminVkIds: ${ADMIN_VK_IDS:-}
+      VkSettings__LeaderVkIds: ${LEADER_VK_IDS:-}
       SendingSettings__DeadlineTime: ${DEADLINE_TIME:-17:00}
       SiteSettings__MarkAttendanceOnSite: ${MARK_ATTENDANCE_ON_SITE:-false}
       SiteSettings__Username: ${SITE_USERNAME:-}

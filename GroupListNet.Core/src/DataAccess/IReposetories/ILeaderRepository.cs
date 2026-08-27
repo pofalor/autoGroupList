@@ -1,4 +1,5 @@
 ﻿using GroupListNet.Core.src.Entities;
+using GroupListNet.Core.src.Enums;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,7 +10,7 @@ namespace GroupListNet.Core.src.DataAccess.IReposetories
 {
     public interface ILeaderRepository : IRepository<Leader>
     {
-        Task<bool> IsLeaderAsync(string telegramId);
+        Task<bool> IsLeaderAsync(MessengerType messenger, string messengerId);
         Task<int[]> GetLeaderIds();
         Task<Student[]> GetLeaderStudentsAsync();
         Task DeleteLeaderByStudentIdsAsync(IEnumerable<int> studentIds);

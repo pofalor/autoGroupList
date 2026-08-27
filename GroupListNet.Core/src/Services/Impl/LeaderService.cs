@@ -2,6 +2,7 @@ using GroupListNet.Core.src.ConfigSectionModels;
 using GroupListNet.Core.src.DataAccess.IReposetories;
 using GroupListNet.Core.src.DataResult;
 using GroupListNet.Core.src.Entities;
+using GroupListNet.Core.src.Enums;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -12,7 +13,16 @@ namespace GroupListNet.Core.src.Services.Impl
         private readonly ILogger<LeaderService> _logger;
         private readonly ILeaderRepository _leaderRepository;
         private readonly IStudentRepository _studentRepository;
-        private readonly string[] _mainLeaderTelegramIds;
+
+        /// <summary>
+        /// Айди основных старост из конфига по каждому мессенджеру
+        /// </summary>
+        private readonly IReadOnlyDictionary<MessengerType, string[]> _mainLeaderIds;
+
+        /// <summary>
+        /// Айди администраторов из конфига по каждому мессенджеру
+        /// </summary>
+        private readonly IReadOnlyDictionary<MessengerType, string[]> _adminIds;
 
         public LeaderService(ILogger<LeaderService> logger,
             IConfiguration config,
@@ -25,50 +35,87 @@ namespace GroupListNet.Core.src.Services.Impl
 
             var telegramConfig = config.GetSection(TelegramSettingsConfiguration.TelegramSectionInConfig)
                 .Get<TelegramSettingsConfiguration>();
+            var vkConfig = config.GetSection(VkSettingsConfiguration.VkSectionInConfig)
+                .Get<VkSettingsConfiguration>();
 
-            _mainLeaderTelegramIds = telegramConfig?.LeaderTelegramIdsArray ?? [];
+            _mainLeaderIds = new Dictionary<MessengerType, string[]>
+            {
+                [MessengerType.Telegram] = telegramConfig?.LeaderTelegramIdsArray ?? [],
+                [MessengerType.Vk] = vkConfig?.LeaderVkIdsArray ?? []
+            };
+
+            _adminIds = new Dictionary<MessengerType, string[]>
+            {
+                [MessengerType.Telegram] = telegramConfig?.AdminTelegramIdsArray ?? [],
+                [MessengerType.Vk] = vkConfig?.AdminVkIdsArray ?? []
+            };
         }
 
-        public bool IsMainLeader(string? telegramId)
+        public bool IsMainLeader(MessengerType messenger, string? messengerId)
         {
-            return !string.IsNullOrWhiteSpace(telegramId) && _mainLeaderTelegramIds.Contains(telegramId);
+            return !string.IsNullOrWhiteSpace(messengerId)
+                && _mainLeaderIds.TryGetValue(messenger, out var ids)
+                && ids.Contains(messengerId);
         }
 
-        public async Task<bool> IsLeaderAsync(string? telegramId)
+        public bool IsMainLeader(Student student)
         {
-            if (string.IsNullOrWhiteSpace(telegramId))
+            return student.GetLinkedMessengers()
+                .Any(messenger => IsMainLeader(messenger, student.GetMessengerId(messenger)));
+        }
+
+        public bool IsAdmin(MessengerType messenger, string? messengerId)
+        {
+            return !string.IsNullOrWhiteSpace(messengerId)
+                && _adminIds.TryGetValue(messenger, out var ids)
+                && ids.Contains(messengerId);
+        }
+
+        public async Task<bool> IsLeaderAsync(MessengerType messenger, string? messengerId)
+        {
+            if (string.IsNullOrWhiteSpace(messengerId))
                 return false;
 
             // Основной староста может пользоваться командами, даже если он ещё не зарегистрирован как студент
-            return IsMainLeader(telegramId) || await _leaderRepository.IsLeaderAsync(telegramId);
+            return IsMainLeader(messenger, messengerId) || await _leaderRepository.IsLeaderAsync(messenger, messengerId);
         }
 
         public async Task SyncMainLeadersAsync()
         {
-            if (_mainLeaderTelegramIds.Length == 0)
+            if (_mainLeaderIds.Values.All(ids => ids.Length == 0))
             {
-                _logger.LogWarning("В конфиге не задан {SectionName}:{SettingName}, основного старосты нет. " +
-                    "Права старосты в этом случае можно выдать только записью в таблице leader.",
-                    TelegramSettingsConfiguration.TelegramSectionInConfig, nameof(TelegramSettingsConfiguration.LeaderTelegramIds));
+                _logger.LogWarning("В конфиге не заданы {TelegramSection}:{TelegramSetting} и {VkSection}:{VkSetting}, " +
+                    "основного старосты нет. Права старосты в этом случае можно выдать только записью в таблице leader.",
+                    TelegramSettingsConfiguration.TelegramSectionInConfig, nameof(TelegramSettingsConfiguration.LeaderTelegramIds),
+                    VkSettingsConfiguration.VkSectionInConfig, nameof(VkSettingsConfiguration.LeaderVkIds));
                 return;
             }
 
             var addedAnyLeader = false;
+            // Один и тот же студент может быть указан основным старостой сразу в двух мессенджерах
+            var alreadyAddedStudentIds = new HashSet<int>();
 
-            foreach (var mainLeaderTelegramId in _mainLeaderTelegramIds)
+            foreach (var (messenger, mainLeaderIds) in _mainLeaderIds)
             {
-                var student = await _studentRepository.GetByTelegramIdAsync(mainLeaderTelegramId);
-                if (student == null)
-                    continue;
+                foreach (var mainLeaderId in mainLeaderIds)
+                {
+                    var student = await _studentRepository.GetByMessengerIdAsync(messenger, mainLeaderId);
+                    if (student == null)
+                        continue;
 
-                if (await _leaderRepository.IsLeaderAsync(mainLeaderTelegramId))
-                    continue;
+                    if (alreadyAddedStudentIds.Contains(student.Id))
+                        continue;
 
-                await _leaderRepository.AddAsync(new Leader { StudentId = student.Id });
-                addedAnyLeader = true;
+                    if (await _leaderRepository.IsLeaderAsync(messenger, mainLeaderId))
+                        continue;
 
-                _logger.LogInformation("Студент {StudentId} назначен старостой по телеграм айди {TelegramId} из конфига.",
-                    student.Id, mainLeaderTelegramId);
+                    await _leaderRepository.AddAsync(new Leader { StudentId = student.Id });
+                    alreadyAddedStudentIds.Add(student.Id);
+                    addedAnyLeader = true;
+
+                    _logger.LogInformation("Студент {StudentId} назначен старостой по айди {MessengerId} в {Messenger} из конфига.",
+                        student.Id, mainLeaderId, messenger);
+                }
             }
 
             if (addedAnyLeader)
@@ -83,7 +130,7 @@ namespace GroupListNet.Core.src.Services.Impl
         public async Task<IReadOnlyCollection<Student>> GetAssistantCandidatesAsync()
         {
             var leaderStudentIds = (await _leaderRepository.GetLeaderIds()).ToHashSet();
-            var registeredStudents = await _studentRepository.GetStudentsWithTelegramAsync();
+            var registeredStudents = await _studentRepository.GetStudentsWithAnyMessengerAsync();
 
             return OrderByNumber(registeredStudents.Where(student => !leaderStudentIds.Contains(student.Id)));
         }
@@ -92,7 +139,7 @@ namespace GroupListNet.Core.src.Services.Impl
         {
             var leaderStudents = await _leaderRepository.GetLeaderStudentsAsync();
 
-            return OrderByNumber(leaderStudents.Where(student => !IsMainLeader(student.TelegramId)));
+            return OrderByNumber(leaderStudents.Where(student => !IsMainLeader(student)));
         }
 
         public async Task<IDataResult<Student>> AddAssistantAsync(int studentId)
@@ -103,7 +150,7 @@ namespace GroupListNet.Core.src.Services.Impl
             if (student == null || student.IsDeleted)
                 return result.WithError("Студент не найден.");
 
-            if (string.IsNullOrWhiteSpace(student.TelegramId))
+            if (!student.HasAnyMessenger())
                 return result.WithError($"{student.GetFullName()} ещё не зарегистрирован в боте, назначить помощником нельзя.");
 
             if (await IsLeaderStudentAsync(student.Id))
@@ -125,7 +172,7 @@ namespace GroupListNet.Core.src.Services.Impl
             if (student == null || student.IsDeleted)
                 return result.WithError("Студент не найден.");
 
-            if (IsMainLeader(student.TelegramId))
+            if (IsMainLeader(student))
                 return result.WithError($"{student.GetFullName()} — основной староста, снять его можно только через конфиг.");
 
             if (!await IsLeaderStudentAsync(student.Id))

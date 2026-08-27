@@ -23,6 +23,7 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.10" />
     <PackageReference Include="System.Linq.Async" Version="6.0.1" />
     <PackageReference Include="Telegram.Bot" Version="22.7.4" />
+    <PackageReference Include="VkNet" Version="1.78.0" />
   </ItemGroup>
 
   <ItemGroup>

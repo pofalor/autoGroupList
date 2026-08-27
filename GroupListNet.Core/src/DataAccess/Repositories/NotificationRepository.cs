@@ -14,21 +14,23 @@ namespace GroupListNet.Core.src.DataAccess.BaseClasses
     {
         public NotificationRepository(ApplicationDbContext context) : base(context) { }
 
-        public async Task<bool> IsStartClassNotificationSentAsync(int studentId, int scheduleId, DateOnly date)
+        public async Task<bool> IsStartClassNotificationSentAsync(int studentId, int scheduleId, DateOnly date, MessengerType messenger)
         {
             DateTime dateOnlyAsDateTime = date.ToDateTime(TimeOnly.MinValue);
 
             return await _dbSet.AnyAsync(n => n.StudentId == studentId &&
                                             n.ScheduleId == scheduleId &&
                                             n.NotificationType == NotificationType.StartClass &&
+                                            n.Messenger == messenger &&
                                             n.ObjectCreateDate.Date == dateOnlyAsDateTime &&
                                             !n.IsDeleted);
         }
 
-        public async Task<int[]> ExceptSentReportAsync(int[] leaders, DateOnly date)
+        public async Task<int[]> ExceptSentReportAsync(int[] leaders, DateOnly date, MessengerType messenger)
         {
             var leadersWithReport = await _dbSet
                 .Where(n => n.NotificationType == NotificationType.EndDayReport)
+                .Where(n => n.Messenger == messenger)
                 .Where(n => DateOnly.FromDateTime(n.ObjectCreateDate) == date)
                 .Where(n => !n.IsDeleted)
                 .Select(x=> x.StudentId)
@@ -37,36 +39,40 @@ namespace GroupListNet.Core.src.DataAccess.BaseClasses
             return [.. leaders.Except(leadersWithReport)];
         }
 
-        public async Task<IEnumerable<Notification>> GetUnsentStartClassNotificationsAsync()
+        public async Task<IEnumerable<Notification>> GetUnsentNotificationsAsync(MessengerType messenger)
         {
             return await _dbSet
                 .Include(x => x.Student)
+                // Расписание с предметом нужны, чтобы собрать текст напоминания при отправке
+                .Include(x => x.Schedule)
+                .ThenInclude(s => s!.Subject)
+                .Where(n => n.Messenger == messenger)
                 .Where(n => !n.IsSent)
                 .Where(n => !n.IsDeleted)
                 .Where(n => string.IsNullOrEmpty(n.ErrorMessage))
                 .ToListAsync();
         }
 
-        public async Task RecordStartClassNotificationAsync(int studentId, int scheduleId, string text)
+        public async Task RecordStartClassNotificationAsync(int studentId, int scheduleId, MessengerType messenger)
         {
             var notification = new Notification
             {
                 StudentId = studentId,
                 ScheduleId = scheduleId,
                 NotificationType = NotificationType.StartClass,
-                Text = text,
+                Messenger = messenger,
             };
             await AddAsync(notification);
             await _context.SaveChangesAsync();
         }
 
-        public async Task RecordDailyReportSentAsync(int leaderStudentId, DateOnly date, string text)
+        public async Task RecordDailyReportSentAsync(int leaderStudentId, DateOnly date, MessengerType messenger)
         {
             var notification = new Notification
             {
                 StudentId = leaderStudentId,
                 NotificationType = NotificationType.EndDayReport,
-                Text = text,
+                Messenger = messenger,
             };
             await AddAsync(notification);
             await _context.SaveChangesAsync();
